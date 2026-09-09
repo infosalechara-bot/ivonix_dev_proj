@@ -28,17 +28,14 @@ public class RecoveryService {
     public UUID createRecoveryJob(RecoveryJobRequest r, UUID userId) {
         requireAdmin(r.organizationId(), userId);
         validateTarget(r);
-        if (r.deviceId() != null && !deviceInOrg(r.deviceId(), r.organizationId())) {
-            throw new SecurityException("Device is not part of the organization");
-        }
+        if (r.deviceId() != null && !deviceInOrg(r.deviceId(), r.organizationId())) throw new SecurityException("Device is not part of the organization");
         UUID jobId = UUID.randomUUID();
         jdbc.update("""
             insert into recovery_jobs
               (id, organization_id, device_id, job_type, target_path, target_table,
                target_identifier, status, created_by)
             values (?, ?, ?, ?, ?, ?, ?, 'queued', ?)
-            """, jobId, r.organizationId(), r.deviceId(), r.jobType(), r.targetPath(),
-                r.targetTable(), r.targetIdentifier(), userId);
+            """, jobId, r.organizationId(), r.deviceId(), r.jobType(), r.targetPath(), r.targetTable(), r.targetIdentifier(), userId);
         log(jobId, userId, "job_created", Map.of("job_type", r.jobType()));
         triggerWorker(jobId, r, userId);
         return jobId;
@@ -50,59 +47,47 @@ public class RecoveryService {
     }
 
     public List<Map<String, Object>> getRecoveredItems(UUID jobId, UUID userId) {
-        UUID org = jdbc.query("select organization_id from recovery_jobs where id = ?", ps -> ps.setObject(1, jobId),
-                rs -> rs.next() ? (UUID) rs.getObject(1) : null);
-        if (org == null) throw new NoSuchElementException("Recovery job not found");
-        requireAdmin(org, userId);
+        UUID org = jobOrg(jobId); requireAdmin(org, userId);
         return jdbc.queryForList("select * from recovered_items where recovery_job_id = ? order by recovered_at desc", jobId);
     }
 
     public List<Map<String, Object>> getLogs(UUID jobId, UUID userId) {
-        UUID org = jdbc.query("select organization_id from recovery_jobs where id = ?", ps -> ps.setObject(1, jobId),
-                rs -> rs.next() ? (UUID) rs.getObject(1) : null);
-        if (org == null) throw new NoSuchElementException("Recovery job not found");
-        requireAdmin(org, userId);
+        UUID org = jobOrg(jobId); requireAdmin(org, userId);
         return jdbc.queryForList("select * from recovery_logs where recovery_job_id = ? order by timestamp desc", jobId);
     }
 
+    private UUID jobOrg(UUID jobId) {
+        UUID org = jdbc.query("select organization_id from recovery_jobs where id = ?", ps -> ps.setObject(1, jobId), rs -> rs.next() ? (UUID) rs.getObject(1) : null);
+        if (org == null) throw new NoSuchElementException("Recovery job not found");
+        return org;
+    }
+
     private void requireAdmin(UUID org, UUID userId) {
-        Boolean allowed = jdbc.queryForObject("""
-            select exists(select 1 from organization_members
-              where organization_id = ? and user_id = ? and lower(role) in ('admin','owner'))
-            """, Boolean.class, org, userId);
+        Boolean allowed = jdbc.queryForObject("select exists(select 1 from organization_members where organization_id = ? and user_id = ? and lower(role) in ('admin','owner'))", Boolean.class, org, userId);
         if (!Boolean.TRUE.equals(allowed)) throw new SecurityException("Administrator authorization required");
     }
 
     private boolean deviceInOrg(UUID deviceId, UUID orgId) {
-        Boolean exists = jdbc.queryForObject("select exists(select 1 from devices where id = ? and organization_id = ?)",
-                Boolean.class, deviceId, orgId);
+        Boolean exists = jdbc.queryForObject("select exists(select 1 from devices where id = ? and organization_id = ?)", Boolean.class, deviceId, orgId);
         return Boolean.TRUE.equals(exists);
     }
 
     private void validateTarget(RecoveryJobRequest r) {
         switch (r.jobType()) {
-            case "file", "system", "message" -> {
-                if (r.targetPath() == null || r.targetPath().isBlank()) throw new IllegalArgumentException("targetPath is required");
-            }
-            case "database" -> {
-                if (r.targetTable() == null || !r.targetTable().matches("[a-zA-Z_][a-zA-Z0-9_]{0,62}"))
-                    throw new IllegalArgumentException("A safe targetTable is required");
-            }
+            case "file", "system", "message" -> { if (r.targetPath() == null || r.targetPath().isBlank()) throw new IllegalArgumentException("targetPath is required"); }
+            case "database" -> { if (r.targetTable() == null || !r.targetTable().matches("[a-zA-Z_][a-zA-Z0-9_]{0,62}")) throw new IllegalArgumentException("A safe targetTable is required"); }
         }
     }
 
     private void triggerWorker(UUID jobId, RecoveryJobRequest r, UUID userId) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("jobId", jobId.toString()); payload.put("deviceId", r.deviceId() == null ? null : r.deviceId().toString());
-        payload.put("jobType", r.jobType()); payload.put("targetPath", r.targetPath());
-        payload.put("targetTable", r.targetTable()); payload.put("targetIdentifier", r.targetIdentifier());
+        payload.put("jobType", r.jobType()); payload.put("targetPath", r.targetPath()); payload.put("targetTable", r.targetTable()); payload.put("targetIdentifier", r.targetIdentifier());
         HttpHeaders headers = new HttpHeaders(); headers.setContentType(MediaType.APPLICATION_JSON);
         if (!workerSecret.isBlank()) headers.set("X-PULSE-RECLAIM-SECRET", workerSecret);
-        try {
-            restTemplate.postForEntity(workerUrl + "/recover", new HttpEntity<>(payload, headers), String.class);
-        } catch (RestClientException ex) {
-            jdbc.update("update recovery_jobs set status='failed', completed_at=now(), result_summary=?::jsonb where id=?",
-                    "{\"error\":\"Recovery worker unavailable\"}", jobId);
+        try { restTemplate.postForEntity(workerUrl + "/recover", new HttpEntity<>(payload, headers), String.class); }
+        catch (RestClientException ex) {
+            jdbc.update("update recovery_jobs set status='failed', completed_at=now(), result_summary=?::jsonb where id=?", "{\"error\":\"Recovery worker unavailable\"}", jobId);
             log(jobId, userId, "worker_dispatch_failed", Map.of("error", "Recovery worker unavailable"));
             throw new IllegalStateException("Recovery worker unavailable", ex);
         }
@@ -110,8 +95,8 @@ public class RecoveryService {
 
     private void log(UUID jobId, UUID userId, String step, Map<String, Object> details) {
         try {
-            jdbc.update("insert into recovery_logs(recovery_job_id,user_id,step,details) values(?,?,?,to_jsonb(?::text))",
-                    jobId, userId, step, new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(details));
-        } catch (Exception ignored) { /* never hide the primary recovery operation */ }
+            String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(details);
+            jdbc.update("insert into recovery_logs(recovery_job_id,user_id,step,details) values(?,?,?,?::jsonb)", jobId, userId, step, json);
+        } catch (Exception ignored) { }
     }
 }
