@@ -1,0 +1,3 @@
+package com.ivonix.pulse.ontology.domain;
+import org.springframework.jdbc.core.JdbcTemplate; import org.springframework.stereotype.Service; import java.util.*;
+@Service public class AutomotiveService extends DomainDataService { public AutomotiveService(JdbcTemplate j){super(j,"automotive_data",Set.of("obd_codes","engine_rpm","vehicle_speed","coolant_temp"));} public DomainDiagnosticResult diagnose(UUID d,UUID o){var x=latest(d,o,1); if(!x.isEmpty()){double t=number(x.get(0),"coolant_temp"); if(!Double.isNaN(t)&&t>100)return new DomainDiagnosticResult("automotive","Engine overheating",.90,List.of("Check coolant level","Inspect radiator"));} return new DomainDiagnosticResult("automotive","No immediate rule-based fault",.10,List.of("Continue monitoring"));}}
