@@ -1,0 +1,3 @@
+package com.ivonix.pulse.ontology.domain;
+import org.springframework.jdbc.core.JdbcTemplate; import org.springframework.stereotype.Service; import java.util.*;
+@Service public class NavalService extends DomainDataService { public NavalService(JdbcTemplate j){super(j,"naval_data",Set.of("engine_fuel_flow","exhaust_temp","hull_stress","position"));} public DomainDiagnosticResult diagnose(UUID d,UUID o){var x=latest(d,o,1);if(!x.isEmpty()){double t=number(x.get(0),"exhaust_temp");if(!Double.isNaN(t)&&t>650)return new DomainDiagnosticResult("naval","High exhaust temperature",.88,List.of("Inspect propulsion system","Review approved thermal limits"));}return new DomainDiagnosticResult("naval","No immediate rule-based fault",.10,List.of("Continue monitoring"));}}
