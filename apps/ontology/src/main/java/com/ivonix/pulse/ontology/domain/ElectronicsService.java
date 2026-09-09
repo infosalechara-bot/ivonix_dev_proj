@@ -1,0 +1,3 @@
+package com.ivonix.pulse.ontology.domain;
+import org.springframework.jdbc.core.JdbcTemplate; import org.springframework.stereotype.Service; import java.util.*;
+@Service public class ElectronicsService extends DomainDataService { public ElectronicsService(JdbcTemplate j){super(j,"electronics_data",Set.of("pcb_temperature","signal_strength","power_consumption","error_flags"));} public DomainDiagnosticResult diagnose(UUID d,UUID o){var x=latest(d,o,1);if(!x.isEmpty()){double t=number(x.get(0),"pcb_temperature");if(!Double.isNaN(t)&&t>85)return new DomainDiagnosticResult("electronics","PCB thermal anomaly",.91,List.of("Inspect thermal path","Reduce load"));}return new DomainDiagnosticResult("electronics","No immediate rule-based fault",.10,List.of("Continue monitoring"));}}
