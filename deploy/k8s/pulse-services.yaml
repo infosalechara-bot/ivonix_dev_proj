@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: pulse-embedding}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: pulse-embedding}}
+  template:
+    metadata: {labels: {app: pulse-embedding}}
+    spec:
+      containers:
+        - {name: embedding, image: yourregistry/pulse-embedding:latest, ports: [{containerPort: 8000}], readinessProbe: {httpGet: {path: /health, port: 8000}}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: pulse-embedding}
+spec: {selector: {app: pulse-embedding}, ports: [{port: 8000, targetPort: 8000}]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: pulse-ai}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: pulse-ai}}
+  template:
+    metadata: {labels: {app: pulse-ai}}
+    spec:
+      containers:
+        - {name: ai, image: yourregistry/pulse-ai:latest, ports: [{containerPort: 8000}], readinessProbe: {httpGet: {path: /health, port: 8000}}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: pulse-ai}
+spec: {selector: {app: pulse-ai}, ports: [{port: 8000, targetPort: 8000}]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: pulse-web}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: pulse-web}}
+  template:
+    metadata: {labels: {app: pulse-web}}
+    spec:
+      containers:
+        - {name: web, image: yourregistry/pulse-web:latest, ports: [{containerPort: 80}], readinessProbe: {httpGet: {path: /health, port: 80}}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: pulse-web}
+spec: {selector: {app: pulse-web}, ports: [{port: 80, targetPort: 80}]}
