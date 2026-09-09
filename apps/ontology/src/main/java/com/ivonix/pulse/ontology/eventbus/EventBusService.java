@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import java.net.InetAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -14,9 +15,13 @@ import java.util.*;
 
 @Service
 public class EventBusService {
+    private static final int MAX_ATTEMPTS = 10;
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
-    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private final HttpClient http = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(5))
+            .followRedirects(HttpClient.Redirect.NEVER)
+            .build();
 
     public EventBusService(JdbcTemplate jdbc, ObjectMapper mapper) { this.jdbc = jdbc; this.mapper = mapper; }
 
@@ -40,7 +45,7 @@ public class EventBusService {
     public UUID subscribe(UUID userId, SubscriptionRequest r) {
         requireMember(r.organizationId(),userId);
         if (!Set.of("service","user").contains(r.subscriberType())) throw new IllegalArgumentException("Invalid subscriber type");
-        if ("service".equals(r.subscriberType()) && (r.endpointUrl()==null || !r.endpointUrl().startsWith("https://"))) throw new IllegalArgumentException("Service endpoints must use HTTPS");
+        if (r.endpointUrl() != null) validateEndpoint(r.endpointUrl());
         UUID id=UUID.randomUUID();
         try {
             jdbc.update("insert into public.event_subscriptions(id,organization_id,subscriber_type,subscriber_id,event_type_id,filter,endpoint_url) values (?,?,?,?,?,?,?)",
@@ -54,7 +59,13 @@ public class EventBusService {
     }
 
     public void deliverPending(int batchSize) {
-        List<Map<String,Object>> rows=jdbc.queryForList("select d.id,d.event_id,d.subscription_id,e.payload,e.source_service,e.event_time,e.correlation_id,s.endpoint_url from public.event_deliveries d join public.events e on e.id=d.event_id join public.event_subscriptions s on s.id=d.subscription_id where d.status='pending' order by d.id limit ?",Math.max(1,Math.min(batchSize,500)));
+        int n=Math.max(1,Math.min(batchSize,500));
+        List<Map<String,Object>> rows=jdbc.queryForList(
+                "select d.id,d.event_id,d.subscription_id,d.attempts,d.last_attempt_at,e.payload,e.source_service,e.event_time,e.correlation_id,s.endpoint_url " +
+                "from public.event_deliveries d join public.events e on e.id=d.event_id join public.event_subscriptions s on s.id=d.subscription_id " +
+                "where (d.status='pending' or (d.status='failed' and d.attempts < ? and (d.last_attempt_at is null or d.last_attempt_at < now() - make_interval(secs => least(300, greatest(5, power(2, least(d.attempts, 8)))))))) " +
+                "order by coalesce(d.last_attempt_at,to_timestamp(0)),d.id limit ?",
+                MAX_ATTEMPTS,n);
         for (Map<String,Object> r:rows) deliver(r);
     }
 
@@ -63,15 +74,36 @@ public class EventBusService {
         String endpoint=(String)r.get("endpoint_url");
         try {
             if(endpoint!=null){
+                validateEndpoint(endpoint);
                 String body=mapper.writeValueAsString(Map.of("id",r.get("event_id"),"sourceService",r.get("source_service"),"eventTime",r.get("event_time"),"payload",r.get("payload"),"correlationId",r.get("correlation_id")));
                 HttpRequest req=HttpRequest.newBuilder(URI.create(endpoint)).timeout(Duration.ofSeconds(10)).header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build();
                 HttpResponse<Void> resp=http.send(req,HttpResponse.BodyHandlers.discarding());
                 if(resp.statusCode()<200||resp.statusCode()>=300) throw new IllegalStateException("Subscriber HTTP "+resp.statusCode());
             }
-            jdbc.update("update public.event_deliveries set status='delivered',attempts=attempts+1,last_attempt_at=now(),delivered_at=now(),error_message=null where id=?",delivery);
+            jdbc.update("update public.event_deliveries set status='delivered',attempts=attempts+1,last_attempt_at=now(),delivered_at=now(),error_message=null where id=? and status in ('pending','failed')",delivery);
         } catch(Exception e){
-            jdbc.update("update public.event_deliveries set status=case when attempts+1>=10 then 'dead_letter' else 'failed' end,attempts=attempts+1,last_attempt_at=now(),error_message=? where id=?",String.valueOf(e.getMessage()).substring(0,Math.min(1000,String.valueOf(e.getMessage()).length())),delivery);
+            String message=String.valueOf(e.getMessage());
+            jdbc.update("update public.event_deliveries set status=case when attempts+1>=? then 'dead_letter' else 'failed' end,attempts=attempts+1,last_attempt_at=now(),error_message=? where id=? and status in ('pending','failed')",MAX_ATTEMPTS,message.substring(0,Math.min(1000,message.length())),delivery);
         }
+    }
+
+    private void validateEndpoint(String endpoint) {
+        URI uri;
+        try { uri=URI.create(endpoint); } catch (IllegalArgumentException e) { throw new IllegalArgumentException("Invalid webhook URL",e); }
+        if(!"https".equalsIgnoreCase(uri.getScheme()) || uri.getUserInfo()!=null || uri.getHost()==null)
+            throw new IllegalArgumentException("Webhook URL must be HTTPS with a public hostname");
+        try {
+            for(InetAddress address: InetAddress.getAllByName(uri.getHost())) {
+                if(address.isAnyLocalAddress() || address.isLoopbackAddress() || address.isLinkLocalAddress() || address.isSiteLocalAddress() || isDocumentationOrSpecial(address))
+                    throw new IllegalArgumentException("Webhook destination is not publicly routable");
+            }
+        } catch (java.net.UnknownHostException e) { throw new IllegalArgumentException("Webhook hostname could not be resolved",e); }
+    }
+
+    private boolean isDocumentationOrSpecial(InetAddress address) {
+        byte[] b=address.getAddress();
+        if(b.length==4){int a=b[0]&255,c=b[1]&255; return a==0 || a==100&&c>=64&&c<=127 || a==198&&(b[2]&255)>=18&&(b[2]&255)<=19 || a==192&&c==0 || a==192&&c==0&& (b[2]&255)==2;}
+        return false;
     }
 
     private void requireMember(UUID org,UUID user){Integer n=jdbc.queryForObject("select count(*) from public.organization_members where organization_id=? and user_id=?",Integer.class,org,user);if(n==null||n<1)throw new SecurityException("Organization membership required");}
