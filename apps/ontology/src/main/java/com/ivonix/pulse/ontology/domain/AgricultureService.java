@@ -1,0 +1,3 @@
+package com.ivonix.pulse.ontology.domain;
+import org.springframework.jdbc.core.JdbcTemplate; import org.springframework.stereotype.Service; import java.util.*;
+@Service public class AgricultureService extends DomainDataService { public AgricultureService(JdbcTemplate j){super(j,"agriculture_data",Set.of("soil_moisture","soil_ph","ambient_temp","humidity"));} public DomainDiagnosticResult diagnose(UUID d,UUID o){var x=latest(d,o,1);if(!x.isEmpty()){double m=number(x.get(0),"soil_moisture");if(!Double.isNaN(m)&&m<20)return new DomainDiagnosticResult("agriculture","Low soil moisture",.86,List.of("Inspect irrigation","Check sensor placement"));}return new DomainDiagnosticResult("agriculture","No immediate rule-based fault",.10,List.of("Continue monitoring"));}}
