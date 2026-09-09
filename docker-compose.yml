@@ -9,11 +9,15 @@ services:
       SUPABASE_URL: ${SUPABASE_URL}
       SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY}
       PULSE_JWT_SECRET: ${PULSE_JWT_SECRET}
+      PULSE_MASTER_KEY: ${PULSE_MASTER_KEY}
+      PULSE_CRYPTO_SERVICE_SECRET: ${PULSE_CRYPTO_SERVICE_SECRET}
+      PULSE_AI_SERVICE_SECRET: ${PULSE_AI_SERVICE_SECRET}
       PULSE_CORS_ORIGINS: ${PULSE_CORS_ORIGINS:-http://localhost:5173}
       PULSE_EMBEDDING_URL: ${PULSE_EMBEDDING_URL:-http://embedding:8000}
       PULSE_AI_URL: ${PULSE_AI_URL:-http://ai:8000}
+      PULSE_CRYPTO_URL: ${PULSE_CRYPTO_URL:-http://key-service:8092}
       VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
-    depends_on: [embedding, ai]
+    depends_on: [embedding, ai, key-service]
     restart: unless-stopped
   frontend:
     build: ./apps/web
@@ -27,4 +31,15 @@ services:
   ai:
     build: ./apps/ai
     expose: ["8000"]
+    environment:
+      PULSE_AI_SERVICE_SECRET: ${PULSE_AI_SERVICE_SECRET}
+    restart: unless-stopped
+  key-service:
+    build: ./apps/key-service
+    expose: ["8092"]
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      PULSE_MASTER_KEY: ${PULSE_MASTER_KEY}
+      PULSE_CRYPTO_SERVICE_SECRET: ${PULSE_CRYPTO_SERVICE_SECRET}
     restart: unless-stopped
