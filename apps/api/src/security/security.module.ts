@@ -1,11 +1,13 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { createClient } from '@supabase/supabase-js';
 import { SecurityController } from './security.controller';
 import { SecurityService } from './security.service';
+import { ThreatIntelFetcher } from './threat-intel.fetcher';
 
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, ScheduleModule.forRoot()],
   controllers: [SecurityController],
   providers: [
     {
@@ -18,6 +20,7 @@ import { SecurityService } from './security.service';
       ),
     },
     SecurityService,
+    ThreatIntelFetcher,
   ],
   exports: [SecurityService],
 })
