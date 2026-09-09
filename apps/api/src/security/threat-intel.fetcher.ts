@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -7,7 +7,7 @@ import axios from 'axios';
 @Injectable()
 export class ThreatIntelFetcher {
   private readonly logger = new Logger(ThreatIntelFetcher.name);
-  constructor(private readonly supabase: SupabaseClient, private readonly config: ConfigService) {}
+  constructor(@Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient, private readonly config: ConfigService) {}
 
   @Cron(CronExpression.EVERY_HOUR)
   async fetchMisp() {
@@ -18,14 +18,12 @@ export class ThreatIntelFetcher {
       const { data } = await axios.get(`${url.replace(/\/$/, '')}/events/index`, {
         headers: { Authorization: key, Accept: 'application/json' }, timeout: 15000,
       });
-      const events = Array.isArray(data) ? data : [];
-      for (const event of events) {
+      for (const event of Array.isArray(data) ? data : []) {
         for (const attr of event?.Event?.Attribute ?? []) {
           const type = this.mapType(attr.type);
           if (!type || !attr.value) continue;
           await this.supabase.from('threat_indicators').upsert({
-            indicator: attr.value, type, source: 'misp', active: true,
-            last_seen: new Date().toISOString(),
+            indicator: attr.value, type, source: 'misp', active: true, last_seen: new Date().toISOString(),
           }, { onConflict: 'indicator,type' });
         }
       }
