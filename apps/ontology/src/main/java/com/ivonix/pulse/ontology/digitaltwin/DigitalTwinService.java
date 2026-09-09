@@ -28,8 +28,7 @@ public class DigitalTwinService {
 
     @Transactional
     public UUID createTwin(UUID orgId, UUID userId, TwinRequest r) {
-        requireMember(orgId, userId);
-        requireDevice(orgId, r.deviceId());
+        requireMember(orgId, userId); requireDevice(orgId, r.deviceId());
         if (!Set.of("thermal", "vibration", "energy").contains(r.simulationModel()))
             throw new IllegalArgumentException("Unsupported simulation model");
         UUID id = UUID.randomUUID();
@@ -40,15 +39,13 @@ public class DigitalTwinService {
 
     @Transactional
     public UUID runSimulation(UUID orgId, UUID userId, UUID twinId, Map<String,Object> input) {
-        requireMember(orgId, userId);
-        TwinRow twin = twin(twinId, orgId);
+        requireMember(orgId, userId); twin(twinId, orgId);
         UUID runId = UUID.randomUUID();
-        jdbc.update("insert into public.simulation_runs(id,twin_id,input_data,status) values(?,?,?,'running')",
-                runId, twinId, json(input == null ? Map.of() : input));
+        Map<String,Object> safeInput = input == null ? Map.of() : input;
+        jdbc.update("insert into public.simulation_runs(id,twin_id,input_data,status) values(?,?,?,'running')", runId, twinId, json(safeInput));
         try {
-            SimulationRequest req = new SimulationRequest(twinId, runId, input == null ? Map.of() : input);
             HttpHeaders h = new HttpHeaders(); h.setContentType(MediaType.APPLICATION_JSON);
-            rest.postForEntity(simulationUrl, new HttpEntity<>(req, h), String.class);
+            rest.postForEntity(simulationUrl, new HttpEntity<>(new SimulationRequest(twinId, runId, safeInput), h), String.class);
             return runId;
         } catch (RuntimeException ex) {
             jdbc.update("update public.simulation_runs set status='failed',completed_at=now(),output_data=?::jsonb where id=? and twin_id=?",
@@ -75,14 +72,10 @@ public class DigitalTwinService {
         return jdbc.queryForList("select id,timestamp,state from public.twin_snapshots where twin_id=? order by timestamp desc limit 100", twinId);
     }
 
-    private TwinRow twin(UUID id, UUID orgId) {
-        return jdbc.query("select id,device_id,simulation_model,parameters from public.digital_twins where id=? and organization_id=?",
-                rs -> rs.next() ? new TwinRow(rs.getObject(1,UUID.class), rs.getObject(2,UUID.class), rs.getString(3), rs.getString(4)) : null, id, orgId) != null
-                ? jdbc.query("select id,device_id,simulation_model,parameters from public.digital_twins where id=? and organization_id=?",
-                    rs -> rs.next() ? new TwinRow(rs.getObject(1,UUID.class), rs.getObject(2,UUID.class), rs.getString(3), rs.getString(4)) : null, id, orgId)
-                : throw new AccessDeniedException("Digital twin access denied");
+    private void twin(UUID id, UUID orgId) {
+        Integer n = jdbc.queryForObject("select count(*) from public.digital_twins where id=? and organization_id=?", Integer.class, id, orgId);
+        if (n == null || n != 1) throw new AccessDeniedException("Digital twin access denied");
     }
-
     private void requireDevice(UUID orgId, UUID deviceId) {
         Integer n = jdbc.queryForObject("select count(*) from public.devices where id=? and organization_id=?", Integer.class, deviceId, orgId);
         if (n == null || n != 1) throw new AccessDeniedException("Device access denied");
@@ -96,7 +89,6 @@ public class DigitalTwinService {
         catch (JsonProcessingException e) { throw new IllegalArgumentException("Invalid JSON payload", e); }
     }
 
-    private record TwinRow(UUID id, UUID deviceId, String model, String parameters) {}
     public record TwinRequest(UUID deviceId, String name, String simulationModel, Map<String,Object> parameters) {}
     public record SimulationRequest(UUID twinId, UUID runId, Map<String,Object> inputData) {}
 }
