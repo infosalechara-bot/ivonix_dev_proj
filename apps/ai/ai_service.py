@@ -1,19 +1,30 @@
+import hmac
+import os
 from typing import Any
 
-from fastapi import FastAPI
-from pydantic import BaseModel, Field, ConfigDict
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, ConfigDict, Field
 
 app = FastAPI(title="PULSE AI Diagnostic Service", version="1.1")
 SCHEMA_VERSION = "1.0"
+SERVICE_SECRET = os.environ.get("PULSE_AI_SERVICE_SECRET", "")
+if not SERVICE_SECRET:
+    raise RuntimeError("PULSE_AI_SERVICE_SECRET is required")
+bearer = HTTPBearer(auto_error=True)
 
 
 class DiagnosisRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
-
     schema_version: str | None = Field(default=SCHEMA_VERSION, alias="schemaVersion")
     machine_domain: str | None = Field(default=None, alias="deviceDomain")
     telemetry: dict[str, Any] = Field(default_factory=dict)
     evidence: list[dict[str, Any]] = Field(default_factory=list)
+
+
+def authorize(credentials: HTTPAuthorizationCredentials = Depends(bearer)):
+    if not hmac.compare_digest(credentials.credentials, SERVICE_SECRET):
+        raise HTTPException(401, "Invalid service credentials")
 
 
 @app.get("/health")
@@ -21,7 +32,7 @@ def health():
     return {"status": "ok", "service": "pulse-ai", "schemaVersion": SCHEMA_VERSION}
 
 
-@app.post("/diagnose")
+@app.post("/diagnose", dependencies=[Depends(authorize)])
 def diagnose(req: DiagnosisRequest):
     t = req.telemetry
     base = {"schemaVersion": SCHEMA_VERSION, "engineType": "RULE_ENGINE", "modelId": "pulse-diagnostic-rules", "modelVersion": "1.0"}
