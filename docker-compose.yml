@@ -1,0 +1,30 @@
+services:
+  backend:
+    build: ./apps/ontology
+    ports: ["8081:8081"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_USERNAME: ${DATABASE_USERNAME}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY}
+      PULSE_JWT_SECRET: ${PULSE_JWT_SECRET}
+      PULSE_CORS_ORIGINS: ${PULSE_CORS_ORIGINS:-http://localhost:5173}
+      PULSE_EMBEDDING_URL: ${PULSE_EMBEDDING_URL:-http://embedding:8000}
+      PULSE_AI_URL: ${PULSE_AI_URL:-http://ai:8000}
+      VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
+    depends_on: [embedding, ai]
+    restart: unless-stopped
+  frontend:
+    build: ./apps/web
+    ports: ["5173:80"]
+    depends_on: [backend]
+    restart: unless-stopped
+  embedding:
+    build: ./apps/embedding
+    expose: ["8000"]
+    restart: unless-stopped
+  ai:
+    build: ./apps/ai
+    expose: ["8000"]
+    restart: unless-stopped
