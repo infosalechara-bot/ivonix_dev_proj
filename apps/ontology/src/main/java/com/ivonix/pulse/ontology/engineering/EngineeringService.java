@@ -15,24 +15,18 @@ import java.util.*;
 public class EngineeringService {
     private static final String DIAGNOSTIC_SCHEMA_VERSION = "1.0";
     private final JdbcTemplate jdbc; private final RestTemplate http; private final ObjectMapper mapper; private final String aiUrl; private final String aiSecret;
-    public EngineeringService(JdbcTemplate jdbc, RestTemplate http, ObjectMapper mapper, Environment env){
-        this.jdbc=jdbc; this.http=http; this.mapper=mapper; this.aiUrl=env.getProperty("PULSE_AI_URL","http://ai:8000"); this.aiSecret=env.getProperty("PULSE_AI_SERVICE_SECRET","");
-    }
-
-    @Transactional
-    public Map<String,Object> diagnose(UUID deviceId,UUID orgId,UUID userId,List<UUID> evidenceIds,Map<String,Object> telemetry){
+    public EngineeringService(JdbcTemplate jdbc,RestTemplate http,ObjectMapper mapper,Environment env){this.jdbc=jdbc;this.http=http;this.mapper=mapper;this.aiUrl=env.getProperty("PULSE_AI_URL","http://ai:8000");this.aiSecret=env.getProperty("PULSE_AI_SERVICE_SECRET","");}
+    @Transactional public Map<String,Object> diagnose(UUID deviceId,UUID orgId,UUID userId,List<UUID> evidenceIds,Map<String,Object> telemetry){
         requireDeviceAccess(deviceId,orgId,userId);
         List<String> types=evidenceIds==null||evidenceIds.isEmpty()?List.of():jdbc.queryForList("select evidence_type from public.inspection_evidence where device_id=? and organization_id=? and id = any(?::uuid[])",String.class,deviceId,orgId,evidenceIds.toArray(new UUID[0]));
-        String domain=jdbc.queryForObject("select domain from public.machine_dna where device_id=? and organization_id=?",String.class,deviceId,orgId);
-        Map<String,Object> req=new LinkedHashMap<>(); req.put("schemaVersion",DIAGNOSTIC_SCHEMA_VERSION); req.put("telemetry",telemetry==null?Map.of():telemetry); req.put("evidence",types.stream().map(t->Map.<String,Object>of("type",t)).toList()); req.put("deviceDomain",domain==null?"unknown":domain);
+        String domain=jdbc.queryForObject("select md.domain from public.machine_dna md join public.devices d on d.id=md.device_id where md.device_id=? and d.organization_id=?",String.class,deviceId,orgId);
+        Map<String,Object> req=new LinkedHashMap<>();req.put("schemaVersion",DIAGNOSTIC_SCHEMA_VERSION);req.put("telemetry",telemetry==null?Map.of():telemetry);req.put("evidence",types.stream().map(t->Map.<String,Object>of("type",t)).toList());req.put("deviceDomain",domain==null?"unknown":domain);
         if(aiSecret==null||aiSecret.isBlank())throw new IllegalStateException("PULSE_AI_SERVICE_SECRET is required");
-        HttpHeaders headers=new HttpHeaders(); headers.setContentType(MediaType.APPLICATION_JSON); headers.setBearerAuth(aiSecret);
-        ResponseEntity<Map> responseEntity=http.exchange(aiUrl+"/diagnose",HttpMethod.POST,new HttpEntity<>(req,headers),Map.class);
-        Map<String,Object> response=responseEntity.getBody(); if(response==null)throw new IllegalStateException("AI diagnostic service returned no result");
-        String probableFault=stringValue(response,"probableFault","probable_fault","Unknown"); double confidence=numberValue(response,"confidence",0.0); Object recommendedActions=firstPresent(response,"recommendedActions","recommended_actions"); if(!(recommendedActions instanceof List<?>))recommendedActions=List.of(); boolean doNotDisassemble=booleanValue(response,"doNotDisassemble","do_not_disassemble",true);
-        if(confidence<0||confidence>1)throw new IllegalStateException("AI diagnostic confidence outside [0,1]");
-        UUID id=UUID.randomUUID(); jdbc.update("insert into public.diagnostic_results(id,device_id,organization_id,probable_fault,confidence,evidence,recommended_actions,do_not_disassemble,created_by) values(?,?,?,?,?,?,?::jsonb,?,?)",id,deviceId,orgId,probableFault,confidence,json(Map.of("types",types)),json(recommendedActions),doNotDisassemble,userId);
-        Map<String,Object> result=new LinkedHashMap<>(response); result.put("schemaVersion",DIAGNOSTIC_SCHEMA_VERSION); result.put("probableFault",probableFault); result.put("confidence",confidence); result.put("recommendedActions",recommendedActions); result.put("doNotDisassemble",doNotDisassemble); result.put("id",id); return result;
+        HttpHeaders headers=new HttpHeaders();headers.setContentType(MediaType.APPLICATION_JSON);headers.setBearerAuth(aiSecret);
+        Map<String,Object> response=http.exchange(aiUrl+"/diagnose",HttpMethod.POST,new HttpEntity<>(req,headers),Map.class).getBody();if(response==null)throw new IllegalStateException("AI diagnostic service returned no result");
+        String probableFault=stringValue(response,"probableFault","probable_fault","Unknown");double confidence=numberValue(response,"confidence",0.0);Object recommendedActions=firstPresent(response,"recommendedActions","recommended_actions");if(!(recommendedActions instanceof List<?>))recommendedActions=List.of();boolean doNotDisassemble=booleanValue(response,"doNotDisassemble","do_not_disassemble",true);if(confidence<0||confidence>1)throw new IllegalStateException("AI diagnostic confidence outside [0,1]");
+        UUID id=UUID.randomUUID();jdbc.update("insert into public.diagnostic_results(id,device_id,organization_id,probable_fault,confidence,evidence,recommended_actions,do_not_disassemble,created_by) values(?,?,?,?,?,?,?::jsonb,?,?)",id,deviceId,orgId,probableFault,confidence,json(Map.of("types",types)),json(recommendedActions),doNotDisassemble,userId);
+        Map<String,Object> result=new LinkedHashMap<>(response);result.put("schemaVersion",DIAGNOSTIC_SCHEMA_VERSION);result.put("probableFault",probableFault);result.put("confidence",confidence);result.put("recommendedActions",recommendedActions);result.put("doNotDisassemble",doNotDisassemble);result.put("id",id);return result;
     }
     private String json(Object value){try{return mapper.writeValueAsString(value);}catch(JsonProcessingException e){throw new IllegalArgumentException("Diagnostic response serialization failed",e);}}
     private Object firstPresent(Map<String,Object> response,String... keys){for(String key:keys)if(response.containsKey(key))return response.get(key);return null;}
