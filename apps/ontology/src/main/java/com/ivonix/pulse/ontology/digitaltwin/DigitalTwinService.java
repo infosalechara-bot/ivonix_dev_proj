@@ -29,19 +29,21 @@ public class DigitalTwinService {
     @Transactional
     public UUID createTwin(UUID orgId, UUID userId, TwinRequest r) {
         requireMember(orgId, userId); requireDevice(orgId, r.deviceId());
-        if (!Set.of("thermal", "vibration", "energy").contains(r.simulationModel()))
-            throw new IllegalArgumentException("Unsupported simulation model");
+        if (!Set.of("thermal", "vibration", "energy").contains(r.simulationModel())) throw new IllegalArgumentException("Unsupported simulation model");
         UUID id = UUID.randomUUID();
         jdbc.update("insert into public.digital_twins(id,organization_id,device_id,name,simulation_model,parameters,created_by) values(?,?,?,?,?,?,?)",
                 id, orgId, r.deviceId(), r.name(), r.simulationModel(), json(r.parameters()), userId);
         return id;
     }
 
-    // Deliberately not transactional: the run row must commit before the worker can update it.
+    // The run row is committed before the worker is invoked so the worker can update it safely.
     public UUID runSimulation(UUID orgId, UUID userId, UUID twinId, Map<String,Object> input) {
-        requireMember(orgId, userId); twin(twinId, orgId);
+        requireMember(orgId, userId);
+        UUID deviceId = twinDevice(twinId, orgId);
+        Map<String,Object> safeInput = input == null ? new LinkedHashMap<>() : new LinkedHashMap<>(input);
+        Map<String,Object> telemetry = latestTelemetry(deviceId, orgId);
+        telemetry.forEach(safeInput::putIfAbsent);
         UUID runId = UUID.randomUUID();
-        Map<String,Object> safeInput = input == null ? Map.of() : input;
         jdbc.update("insert into public.simulation_runs(id,twin_id,input_data,status) values(?,?,?,'running')", runId, twinId, json(safeInput));
         try {
             HttpHeaders h = new HttpHeaders(); h.setContentType(MediaType.APPLICATION_JSON);
@@ -68,13 +70,23 @@ public class DigitalTwinService {
 
     @Transactional(readOnly = true)
     public List<Map<String,Object>> snapshots(UUID orgId, UUID userId, UUID twinId) {
-        requireMember(orgId, userId); twin(twinId, orgId);
+        requireMember(orgId, userId); twinDevice(twinId, orgId);
         return jdbc.queryForList("select id,timestamp,state from public.twin_snapshots where twin_id=? order by timestamp desc limit 100", twinId);
     }
 
-    private void twin(UUID id, UUID orgId) {
-        Integer n = jdbc.queryForObject("select count(*) from public.digital_twins where id=? and organization_id=?", Integer.class, id, orgId);
-        if (n == null || n != 1) throw new AccessDeniedException("Digital twin access denied");
+    private UUID twinDevice(UUID id, UUID orgId) {
+        return jdbc.query("select device_id from public.digital_twins where id=? and organization_id=?",
+                rs -> rs.next() ? rs.getObject(1, UUID.class) : null, id, orgId) != null
+                ? jdbc.query("select device_id from public.digital_twins where id=? and organization_id=?",
+                    rs -> rs.next() ? rs.getObject(1, UUID.class) : null, id, orgId)
+                : throw new AccessDeniedException("Digital twin access denied");
+    }
+    private Map<String,Object> latestTelemetry(UUID deviceId, UUID orgId) {
+        List<Map<String,Object>> rows = jdbc.queryForList("select data from public.device_telemetry where device_id=? and organization_id=? order by timestamp desc limit 1", deviceId, orgId);
+        if (rows.isEmpty() || rows.get(0).get("data") == null) return Map.of();
+        Object data = rows.get(0).get("data");
+        if (data instanceof Map<?,?> m) { Map<String,Object> out=new LinkedHashMap<>(); m.forEach((k,v)->out.put(String.valueOf(k),v)); return out; }
+        try { return mapper.readValue(String.valueOf(data), Map.class); } catch (Exception ignored) { return Map.of(); }
     }
     private void requireDevice(UUID orgId, UUID deviceId) {
         Integer n = jdbc.queryForObject("select count(*) from public.devices where id=? and organization_id=?", Integer.class, deviceId, orgId);
@@ -84,10 +96,7 @@ public class DigitalTwinService {
         Integer n = jdbc.queryForObject("select count(*) from public.organization_members where organization_id=? and user_id=?", Integer.class, orgId, userId);
         if (n == null || n != 1) throw new AccessDeniedException("Organization access denied");
     }
-    private String json(Object value) {
-        try { return mapper.writeValueAsString(value == null ? Map.of() : value); }
-        catch (JsonProcessingException e) { throw new IllegalArgumentException("Invalid JSON payload", e); }
-    }
+    private String json(Object value) { try { return mapper.writeValueAsString(value == null ? Map.of() : value); } catch (JsonProcessingException e) { throw new IllegalArgumentException("Invalid JSON payload", e); } }
 
     public record TwinRequest(UUID deviceId, String name, String simulationModel, Map<String,Object> parameters) {}
     public record SimulationRequest(UUID twinId, UUID runId, Map<String,Object> inputData) {}
