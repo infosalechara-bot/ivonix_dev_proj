@@ -1,0 +1,21 @@
+name: PULSE Ontology CI
+on:
+  push:
+    branches: [main]
+    paths: ['apps/ontology/**']
+  pull_request:
+    paths: ['apps/ontology/**']
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/ontology
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: mvn -B test
