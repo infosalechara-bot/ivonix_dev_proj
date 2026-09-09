@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -7,16 +7,12 @@ import { SecurityEventDto, ThreatIndicatorDto } from './dto/security-event.dto';
 
 @Injectable()
 export class SecurityService {
-  constructor(private readonly supabase: SupabaseClient, private readonly config: ConfigService) {}
+  constructor(@Inject('SUPABASE_CLIENT') private readonly supabase: SupabaseClient, private readonly config: ConfigService) {}
 
   async ingestEvent(dto: SecurityEventDto) {
     const { data, error } = await this.supabase.from('security_events').insert({
-      organization_id: dto.organizationId,
-      device_id: dto.deviceId,
-      event_type: dto.eventType,
-      severity: dto.severity ?? 'medium',
-      details: dto.details ?? {},
-      source_ip: dto.sourceIp,
+      organization_id: dto.organizationId, device_id: dto.deviceId, event_type: dto.eventType,
+      severity: dto.severity ?? 'medium', details: dto.details ?? {}, source_ip: dto.sourceIp,
     }).select().single();
     if (error) throw new BadRequestException(error.message);
     return data;
@@ -31,7 +27,8 @@ export class SecurityService {
 
   async addThreatIndicator(dto: ThreatIndicatorDto) {
     const { data, error } = await this.supabase.from('threat_indicators').insert({
-      ...dto, active: true, last_seen: new Date().toISOString(),
+      organization_id: dto.organizationId, indicator: dto.indicator, type: dto.type,
+      source: dto.source, confidence: dto.confidence, active: true,
     }).select().single();
     if (error) throw new BadRequestException(error.message);
     return data;
