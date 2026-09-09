@@ -1,0 +1,5 @@
+package com.ivonix.pulse.ontology.edge;
+import com.fasterxml.jackson.databind.ObjectMapper; import jakarta.validation.Valid; import jakarta.validation.constraints.*; import org.springframework.http.ResponseEntity; import org.springframework.security.core.context.SecurityContextHolder; import org.springframework.web.bind.annotation.*; import java.util.*;
+@RestController @RequestMapping("/api/v1/edge") public class EdgeController { private final OfflineDatabase db; private final ObjectMapper mapper; public EdgeController(OfflineDatabase db,ObjectMapper mapper){this.db=db;this.mapper=mapper;} public record QueueRequest(@NotNull UUID recordId,@NotBlank @Size(max=64) String table,@NotBlank @Pattern(regexp="insert|update") String operation,@NotNull Map<String,Object> data){}
+ private UUID org(){return (UUID)SecurityContextHolder.getContext().getAuthentication().getDetails();}
+ @PostMapping("/queue") public ResponseEntity<Void> queue(@Valid @RequestBody QueueRequest r) throws Exception {db.enqueue(org(),r.recordId(),r.table(),r.operation(),mapper.writeValueAsString(r.data()));return ResponseEntity.accepted().build();}}
