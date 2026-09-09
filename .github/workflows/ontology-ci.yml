@@ -1,21 +1,37 @@
 name: PULSE Ontology CI
+
 on:
+  workflow_dispatch:
   push:
     branches: [main]
-    paths: ['apps/ontology/**']
+    paths:
+      - 'apps/ontology/**'
+      - '.github/workflows/ontology-ci.yml'
   pull_request:
-    paths: ['apps/ontology/**']
+    paths:
+      - 'apps/ontology/**'
+      - '.github/workflows/ontology-ci.yml'
+
+permissions:
+  contents: read
+
 jobs:
   test:
+    name: Build and test Ontology
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: apps/ontology
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - run: mvn -B test
+
+      - name: Run Maven tests
+        run: mvn -B test
