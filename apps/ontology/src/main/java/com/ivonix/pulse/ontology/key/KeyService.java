@@ -1,6 +1,7 @@
 package com.ivonix.pulse.ontology.key;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -18,98 +19,57 @@ public class KeyService {
     private final JdbcTemplate jdbc;
     private final RestTemplate rest;
     private final String cryptoUrl;
+    private final String cryptoSecret;
     private final byte[] masterKey;
     private final SecureRandom random = new SecureRandom();
 
-    public KeyService(JdbcTemplate jdbc, RestTemplate rest, @Value("${PULSE_CRYPTO_URL:http://127.0.0.1:8092}") String cryptoUrl) {
-        this.jdbc = jdbc;
-        this.rest = rest;
-        this.cryptoUrl = cryptoUrl.replaceAll("/$", "");
+    public KeyService(JdbcTemplate jdbc, RestTemplate rest,
+                      @Value("${PULSE_CRYPTO_URL:http://127.0.0.1:8092}") String cryptoUrl,
+                      @Value("${PULSE_CRYPTO_SERVICE_SECRET:}") String cryptoSecret) {
+        this.jdbc = jdbc; this.rest = rest; this.cryptoUrl = cryptoUrl.replaceAll("/$", ""); this.cryptoSecret = cryptoSecret;
         String raw = System.getenv("PULSE_MASTER_KEY");
         if (raw == null || raw.isBlank()) throw new IllegalStateException("PULSE_MASTER_KEY is required");
-        try { masterKey = Base64.getDecoder().decode(raw); }
-        catch (Exception e) { throw new IllegalStateException("PULSE_MASTER_KEY must be base64", e); }
+        try { masterKey = Base64.getDecoder().decode(raw); } catch (Exception e) { throw new IllegalStateException("PULSE_MASTER_KEY must be base64", e); }
         if (masterKey.length != 32) throw new IllegalStateException("PULSE_MASTER_KEY must decode to 32 bytes");
     }
 
     public KeyView create(UUID userId, UUID orgId, KeyRequest r) {
-        requireMember(orgId, userId);
-        String type = req(r.keyType(), "keyType");
-        String purpose = req(r.purpose(), "purpose");
-        String alias = req(r.keyAlias(), "keyAlias");
-        if (!SUPPORTED_KEY_TYPES.contains(type)) throw new IllegalArgumentException("Unsupported key type; currently supported: aes-256");
-        if (!SUPPORTED_PURPOSES.contains(purpose)) throw new IllegalArgumentException("Unsupported key purpose; currently supported: encryption");
-        KeyMaterial m = generate(type);
-        UUID id = UUID.randomUUID();
-        jdbc.update("insert into public.crypto_keys(id,organization_id,key_alias,key_type,purpose,hsm_backed,public_key,encrypted_private_key,created_by) values (?,?,?,?,?,?,?,?,?)",
-                id, orgId, alias, type, purpose, false, m.publicKey(), seal(m.privateKey()), userId);
-        audit(id, "create", userId, "success");
-        return get(id, userId, orgId);
+        requireMember(orgId,userId); String type=req(r.keyType(),"keyType"), purpose=req(r.purpose(),"purpose"), alias=req(r.keyAlias(),"keyAlias");
+        if(!SUPPORTED_KEY_TYPES.contains(type)) throw new IllegalArgumentException("Unsupported key type; currently supported: aes-256");
+        if(!SUPPORTED_PURPOSES.contains(purpose)) throw new IllegalArgumentException("Unsupported key purpose; currently supported: encryption");
+        KeyMaterial m=generate(type); UUID id=UUID.randomUUID();
+        jdbc.update("insert into public.crypto_keys(id,organization_id,key_alias,key_type,purpose,hsm_backed,public_key,encrypted_private_key,created_by) values (?,?,?,?,?,?,?,?,?)",id,orgId,alias,type,purpose,false,m.publicKey(),seal(m.privateKey()),userId);
+        audit(id,"create",userId,"success"); return get(id,userId,orgId);
+    }
+    public String encrypt(UUID userId,UUID orgId,UUID keyId,String plaintext){authorizeKey(keyId,userId,orgId,"encryption");return encryptInternal(keyId,plaintext,userId);}
+    public String decrypt(UUID userId,UUID orgId,UUID keyId,String ciphertext){authorizeKey(keyId,userId,orgId,"encryption");return decryptInternal(keyId,ciphertext,userId);}
+    public String encryptSystem(UUID orgId,UUID keyId,String plaintext){authorizeSystemKey(keyId,orgId,"encryption");return encryptInternal(keyId,plaintext,null);}
+    public String decryptSystem(UUID orgId,UUID keyId,String ciphertext){authorizeSystemKey(keyId,orgId,"encryption");return decryptInternal(keyId,ciphertext,null);}
+
+    private String encryptInternal(UUID keyId,String plaintext,UUID actor){
+        if(plaintext==null)throw new IllegalArgumentException("plaintext required");
+        CryptoResponse r=crypto("/v1/encrypt",new CryptoRequest(keyId,plaintext));
+        if(r==null||r.ciphertext()==null)throw new IllegalStateException("Crypto service returned no ciphertext"); audit(keyId,"encrypt",actor,"success"); return r.ciphertext();
+    }
+    private String decryptInternal(UUID keyId,String ciphertext,UUID actor){
+        if(ciphertext==null)throw new IllegalArgumentException("ciphertext required");
+        CryptoResponse r=crypto("/v1/decrypt",new CryptoRequest(keyId,ciphertext));
+        if(r==null||r.plaintext()==null)throw new IllegalStateException("Crypto service returned no plaintext"); audit(keyId,"decrypt",actor,"success"); return r.plaintext();
+    }
+    private CryptoResponse crypto(String path,CryptoRequest body){
+        if(cryptoSecret==null||cryptoSecret.isBlank())throw new IllegalStateException("PULSE_CRYPTO_SERVICE_SECRET is required");
+        HttpHeaders headers=new HttpHeaders(); headers.setContentType(MediaType.APPLICATION_JSON); headers.setBearerAuth(cryptoSecret);
+        ResponseEntity<CryptoResponse> response=rest.exchange(cryptoUrl+path,HttpMethod.POST,new HttpEntity<>(body,headers),CryptoResponse.class);
+        return response.getBody();
     }
 
-    public String encrypt(UUID userId, UUID orgId, UUID keyId, String plaintext) {
-        authorizeKey(keyId, userId, orgId, "encryption");
-        return encryptInternal(keyId, plaintext, userId);
-    }
-
-    public String decrypt(UUID userId, UUID orgId, UUID keyId, String ciphertext) {
-        authorizeKey(keyId, userId, orgId, "encryption");
-        return decryptInternal(keyId, ciphertext, userId);
-    }
-
-    public String encryptSystem(UUID orgId, UUID keyId, String plaintext) {
-        authorizeSystemKey(keyId, orgId, "encryption");
-        return encryptInternal(keyId, plaintext, null);
-    }
-
-    public String decryptSystem(UUID orgId, UUID keyId, String ciphertext) {
-        authorizeSystemKey(keyId, orgId, "encryption");
-        return decryptInternal(keyId, ciphertext, null);
-    }
-
-    private String encryptInternal(UUID keyId, String plaintext, UUID actor) {
-        if (plaintext == null) throw new IllegalArgumentException("plaintext required");
-        CryptoResponse r = rest.postForObject(cryptoUrl + "/v1/encrypt", new CryptoRequest(keyId, plaintext), CryptoResponse.class);
-        if (r == null || r.ciphertext() == null) throw new IllegalStateException("Crypto service returned no ciphertext");
-        audit(keyId, "encrypt", actor, "success");
-        return r.ciphertext();
-    }
-
-    private String decryptInternal(UUID keyId, String ciphertext, UUID actor) {
-        if (ciphertext == null) throw new IllegalArgumentException("ciphertext required");
-        CryptoResponse r = rest.postForObject(cryptoUrl + "/v1/decrypt", new CryptoRequest(keyId, ciphertext), CryptoResponse.class);
-        if (r == null || r.plaintext() == null) throw new IllegalStateException("Crypto service returned no plaintext");
-        audit(keyId, "decrypt", actor, "success");
-        return r.plaintext();
-    }
-
-    public KeyView get(UUID id, UUID userId, UUID orgId) { authorizeKey(id, userId, orgId, null); return getUnchecked(id, orgId); }
-    public List<KeyView> list(UUID userId, UUID orgId) { requireMember(orgId, userId); return jdbc.query("select id,key_alias,key_type,purpose,hsm_backed,public_key,created_at,last_rotated_at,rotation_interval_days,status from public.crypto_keys where organization_id=? order by created_at desc", (rs,n)->view(rs), orgId); }
-
-    private void authorizeSystemKey(UUID id, UUID orgId, String purpose) {
-        KeyView k = getUnchecked(id, orgId);
-        if (k == null || !"active".equals(k.status())) throw new SecurityException("Key unavailable");
-        if (!SUPPORTED_KEY_TYPES.contains(k.keyType()) || (purpose != null && !purpose.equals(k.purpose()))) throw new SecurityException("Key capability mismatch");
-    }
-
-    private KeyView authorizeKey(UUID id, UUID userId, UUID orgId, String purpose) {
-        requireMember(orgId, userId);
-        KeyView k = getUnchecked(id, orgId);
-        if (k == null || !"active".equals(k.status())) throw new SecurityException("Key unavailable");
-        if (!SUPPORTED_KEY_TYPES.contains(k.keyType()) || (purpose != null && !purpose.equals(k.purpose()))) throw new SecurityException("Key capability mismatch");
-        return k;
-    }
-
-    private KeyView getUnchecked(UUID id, UUID orgId) {
-        try { return jdbc.queryForObject("select id,key_alias,key_type,purpose,hsm_backed,public_key,created_at,last_rotated_at,rotation_interval_days,status from public.crypto_keys where id=? and organization_id=?", (rs,n)->view(rs), id, orgId); }
-        catch (Exception e) { return null; }
-    }
-
-    private KeyView view(java.sql.ResultSet rs) throws java.sql.SQLException {
-        return new KeyView((UUID)rs.getObject("id"), rs.getString("key_alias"), rs.getString("key_type"), rs.getString("purpose"), rs.getBoolean("hsm_backed"), rs.getString("public_key"), rs.getObject("created_at", java.time.Instant.class), rs.getObject("last_rotated_at", java.time.Instant.class), rs.getInt("rotation_interval_days"), rs.getString("status"));
-    }
-
-    private void requireMember(UUID org, UUID user) { Integer n=jdbc.queryForObject("select count(*) from public.organization_members where organization_id=? and user_id=?",Integer.class,org,user); if(n==null||n<1)throw new SecurityException("Organization membership required"); }
+    public KeyView get(UUID id,UUID userId,UUID orgId){authorizeKey(id,userId,orgId,null);return getUnchecked(id,orgId);}
+    public List<KeyView> list(UUID userId,UUID orgId){requireMember(orgId,userId);return jdbc.query("select id,key_alias,key_type,purpose,hsm_backed,public_key,created_at,last_rotated_at,rotation_interval_days,status from public.crypto_keys where organization_id=? order by created_at desc",(rs,n)->view(rs),orgId);}
+    private void authorizeSystemKey(UUID id,UUID orgId,String purpose){KeyView k=getUnchecked(id,orgId);if(k==null||!"active".equals(k.status()))throw new SecurityException("Key unavailable");if(!SUPPORTED_KEY_TYPES.contains(k.keyType())||(purpose!=null&&!purpose.equals(k.purpose())))throw new SecurityException("Key capability mismatch");}
+    private KeyView authorizeKey(UUID id,UUID userId,UUID orgId,String purpose){requireMember(orgId,userId);KeyView k=getUnchecked(id,orgId);if(k==null||!"active".equals(k.status()))throw new SecurityException("Key unavailable");if(!SUPPORTED_KEY_TYPES.contains(k.keyType())||(purpose!=null&&!purpose.equals(k.purpose())))throw new SecurityException("Key capability mismatch");return k;}
+    private KeyView getUnchecked(UUID id,UUID orgId){try{return jdbc.queryForObject("select id,key_alias,key_type,purpose,hsm_backed,public_key,created_at,last_rotated_at,rotation_interval_days,status from public.crypto_keys where id=? and organization_id=?",(rs,n)->view(rs),id,orgId);}catch(Exception e){return null;}}
+    private KeyView view(java.sql.ResultSet rs)throws java.sql.SQLException{return new KeyView((UUID)rs.getObject("id"),rs.getString("key_alias"),rs.getString("key_type"),rs.getString("purpose"),rs.getBoolean("hsm_backed"),rs.getString("public_key"),rs.getObject("created_at",java.time.Instant.class),rs.getObject("last_rotated_at",java.time.Instant.class),rs.getInt("rotation_interval_days"),rs.getString("status"));}
+    private void requireMember(UUID org,UUID user){Integer n=jdbc.queryForObject("select count(*) from public.organization_members where organization_id=? and user_id=?",Integer.class,org,user);if(n==null||n<1)throw new SecurityException("Organization membership required");}
     private void audit(UUID id,String op,UUID user,String status){jdbc.update("insert into public.crypto_operations(key_id,operation_type,requested_by,status) values (?,?,?,?)",id,op,user,status);}
     private String req(String s,String n){if(s==null||s.isBlank())throw new IllegalArgumentException(n+" required");return s.trim().toLowerCase(Locale.ROOT);}
     private KeyMaterial generate(String type){if(!"aes-256".equals(type))throw new IllegalArgumentException("Unsupported key type");byte[] b=new byte[32];random.nextBytes(b);return new KeyMaterial(null,b);}
