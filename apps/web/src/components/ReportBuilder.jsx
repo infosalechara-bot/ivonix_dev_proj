@@ -1,0 +1,19 @@
+import React,{useEffect,useState} from 'react';
+
+const API=import.meta.env.VITE_API_BASE_URL||'http://localhost:8081/api/v1';
+const token=()=>localStorage.getItem('pulse_access_token');
+async function call(path,options={}){const r=await fetch(`${API}${path}`,{...options,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token()}`,...options.headers}});if(!r.ok)throw new Error(await r.text()||`HTTP ${r.status}`);return r.status===204?null:r.json();}
+
+export default function ReportBuilder(){
+ const [reports,setReports]=useState([]),[name,setName]=useState(''),[type,setType]=useState('natural_language'),[definition,setDefinition]=useState(''),[selected,setSelected]=useState(null),[results,setResults]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const load=async()=>{try{setReports(await call('/insight/reports'));}catch(e){setError(e.message)}};
+ useEffect(()=>{load()},[]);
+ const create=async()=>{setBusy(true);setError('');try{await call('/insight/reports',{method:'POST',body:JSON.stringify({name,queryType:type,queryDefinition:definition})});setName('');setDefinition('');await load();}catch(e){setError(e.message)}finally{setBusy(false)}};
+ const run=async(id)=>{setBusy(true);setError('');setSelected(id);try{setResults(await call(`/insight/reports/${id}/execute`,{method:'POST'}));}catch(e){setError(e.message);setResults(null)}finally{setBusy(false)}};
+ return <section className="panel"><h2>PULSE Insight</h2><p>Unified analytics, reporting and internal natural-language query.</p>
+  <div className="form-grid"><input value={name} onChange={e=>setName(e.target.value)} placeholder="Report name"/><select value={type} onChange={e=>setType(e.target.value)}><option value="natural_language">Natural language</option><option value="sql">SQL</option></select><textarea value={definition} onChange={e=>setDefinition(e.target.value)} placeholder={type==='sql'?'SELECT ... with organization_id = ...':'Ask about PULSE data, e.g. devices online'} rows={4}/><button disabled={busy||!name||!definition} onClick={create}>Save report</button></div>
+  {error&&<pre>{error}</pre>}
+  <ul>{reports.map(r=><li key={r.id}><strong>{r.name}</strong> — {r.query_type} <button disabled={busy} onClick={()=>run(r.id)}>Run</button></li>)}</ul>
+  {selected&&results&&<pre style={{overflow:'auto'}}>{JSON.stringify(results,null,2)}</pre>}
+ </section>;
+}
