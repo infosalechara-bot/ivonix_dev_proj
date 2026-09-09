@@ -37,7 +37,7 @@ public class DigitalTwinService {
         return id;
     }
 
-    @Transactional
+    // Deliberately not transactional: the run row must commit before the worker can update it.
     public UUID runSimulation(UUID orgId, UUID userId, UUID twinId, Map<String,Object> input) {
         requireMember(orgId, userId); twin(twinId, orgId);
         UUID runId = UUID.randomUUID();
