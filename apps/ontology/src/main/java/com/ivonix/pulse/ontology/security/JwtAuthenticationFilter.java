@@ -1,5 +1,6 @@
 package com.ivonix.pulse.ontology.security;
 
+import com.ivonix.pulse.ontology.auth.JwtService;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.*;
 import jakarta.servlet.http.*;
