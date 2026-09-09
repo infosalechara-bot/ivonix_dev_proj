@@ -1,0 +1,5 @@
+package com.ivonix.pulse.ontology.chrysalis;
+import com.ivonix.pulse.ontology.domain.DomainApi; import jakarta.validation.Valid; import jakarta.validation.constraints.*; import org.springframework.http.ResponseEntity; import org.springframework.web.bind.annotation.*; import java.util.*;
+@RestController @RequestMapping("/api/v1/chrysalis") public class ChrysalisController { private final ChrysalisService service; public ChrysalisController(ChrysalisService s){service=s;} public record AssessRequest(@NotNull UUID deviceId,@NotEmpty @Size(max=32) List<@NotBlank @Size(max=64) String> desiredCapabilities){} public record ExecuteRequest(@NotNull UUID upgradePathId,@NotNull UUID deviceId){}
+ @PostMapping("/assess") public List<UpgradeRecommendation> assess(@Valid @RequestBody AssessRequest r){return service.assess(r.deviceId(),DomainApi.org(),r.desiredCapabilities());}
+ @PostMapping("/execute") public ResponseEntity<Void> execute(@Valid @RequestBody ExecuteRequest r){service.execute(r.upgradePathId(),r.deviceId(),DomainApi.org());return ResponseEntity.noContent().build();}}
