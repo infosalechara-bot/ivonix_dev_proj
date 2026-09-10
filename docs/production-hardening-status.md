@@ -43,14 +43,15 @@ The audit covers repository code, frontend, Java backend, Python services/worker
 | Founder gate | NOT CERTIFIED | FND-026 TTL, single-use, signed receipt and complete critical-action routing require executable evidence. |
 | Integration / E2E | NOT CERTIFIED | Complete machine registration → credential auth → telemetry → Event Bus → ontology/intelligence → command → acknowledgement → audit/ledger flow remains. |
 | Failure / chaos | NOT CERTIFIED | Service, database, Event Bus, network, worker, storage and recovery failure scenarios remain. |
-| Load | NOT CERTIFIED | Required targets: 10k msg/s for 5 min, p95 <250 ms, p99 <800 ms; 500 concurrent API reads p95 <300 ms; errors <1%. |
+| Load | IMPLEMENTED, VERIFY | Executable k6 profiles now exist for the 10k msg/s sustained machine workload and 500-VU API read workload. Actual target execution/evidence remains mandatory. |
 | Backup / restore | NOT CERTIFIED | RTO ≤1h and RPO ≤5m must be demonstrated. |
 | Deployment | IN PROGRESS | Compose coverage is reconciled and Vercel build path corrected; clean deployment, canary and rollback evidence remain. |
 | Runtime verification | NOT CERTIFIED | Requires deployed smoke tests and production-like runtime evidence. |
 | Database performance | IN PROGRESS | RLS/index/performance cleanup must be verified against load targets. |
-| Storage | NOT PROVISIONED | Live project currently has 0 storage buckets and 0 storage policies while certificate/Meet workflows expect storage. |
-| Migration reproducibility | NOT CERTIFIED | Canonical baseline and schema-drift reconciliation remain mandatory before production migration. |
-| Security regression CI | IMPLEMENTED, VERIFY | Cross-service Python security tests, secret-pattern scanning and Compose secret coverage are now defined in `pulse-security-gates.yml`. |
+| Storage | STAGED, NOT PROVISIONED | Tenant-isolated private `pulse-assets` bucket/policies are now staged in migration `20260910008000`; live storage remains unchanged at 0 buckets/0 policies. |
+| Migration reproducibility | NOT CERTIFIED | Canonical baseline and schema-drift reconciliation remain mandatory before production migration. A read-only schema/RLS verification script is now present at `scripts/verify-schema.sql`. |
+| Security regression CI | IMPLEMENTED, VERIFY | Cross-service Python security tests, secret-pattern scanning and Compose secret coverage are defined in `pulse-security-gates.yml`. |
+| Machine-flow certification harness | IMPLEMENTED, VERIFY | `tests/integration/machine-flow-gates.md` defines the complete registration → telemetry → Event Bus → intelligence → command → audit → recovery → Founder → runtime chain and certification thresholds. |
 
 ## Recent hardening changes
 
@@ -59,6 +60,8 @@ The Spring Security boundary now permits only the device-gateway path through th
 NL-to-SQL `/convert` requires `PULSE_NL_TO_SQL_SERVICE_SECRET`. VERITAS `/analyze` requires `PULSE_VERITAS_SERVICE_SECRET` and verifies evidence/session ownership before writing analysis. RECLAIM validates requests against persisted recovery jobs and has focused tampering/replay tests.
 
 Compose now includes Founder Agent, RECLAIM, VERITAS and NL-to-SQL. The new security workflow adds cross-service compilation/tests, repository secret-pattern checks, dangerous-code-pattern checks and Compose secret consistency checks.
+
+A private tenant-isolated storage foundation is staged but deliberately not applied to production. Read-only schema/RLS verification and executable k6 load profiles are now part of the hardening artifacts. The complete machine-flow certification sequence is documented for integration execution.
 
 These are implementation corrections, not production-certification claims.
 
