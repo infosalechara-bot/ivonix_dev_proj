@@ -1,0 +1,86 @@
+name: Block 1 - Live Golden Path Certification
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_canary:
+        description: 'Run the Golden Path twice more after the primary run'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: block1-live-certification
+  cancel-in-progress: false
+
+jobs:
+  golden-path:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PULSE_E2E_API_URL: ${{ secrets.PULSE_E2E_API_URL }}
+      PULSE_E2E_MQTT_URL: ${{ secrets.PULSE_E2E_MQTT_URL }}
+      PULSE_E2E_USER_TOKEN: ${{ secrets.PULSE_E2E_USER_TOKEN }}
+      PULSE_E2E_ORG_ID: ${{ secrets.PULSE_E2E_ORG_ID }}
+      PULSE_E2E_SUPABASE_URL: ${{ secrets.PULSE_E2E_SUPABASE_URL }}
+      PULSE_E2E_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PULSE_E2E_SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pulse-production-bulk-hardening
+
+      - name: Verify live certification inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in \
+            PULSE_E2E_API_URL \
+            PULSE_E2E_MQTT_URL \
+            PULSE_E2E_USER_TOKEN \
+            PULSE_E2E_ORG_ID \
+            PULSE_E2E_SUPABASE_URL \
+            PULSE_E2E_SUPABASE_SERVICE_ROLE_KEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "ERROR: required live-certification secret is not configured: ${name}"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+          echo "All six live-certification inputs are present."
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: tests/e2e/package.json
+
+      - name: Install E2E dependencies
+        working-directory: tests/e2e
+        run: npm install --no-audit --no-fund
+
+      - name: Type-check Golden Path
+        working-directory: tests/e2e
+        run: npx tsc --noEmit --allowJs false --module NodeNext --moduleResolution NodeNext --target ES2022 golden_path_1.spec.ts
+
+      - name: Execute Golden Path 1
+        working-directory: tests/e2e
+        run: npm run golden-path
+
+      - name: Repeat Golden Path when canary requested
+        if: ${{ inputs.run_canary == true }}
+        working-directory: tests/e2e
+        run: |
+          set -euo pipefail
+          for attempt in 1 2; do
+            echo "=== Golden Path canary attempt ${attempt}/2 ==="
+            npm run golden-path
+          done
+
+      - name: Certification summary
+        if: always()
+        run: |
+          echo 'Block 1 live certification executed against the configured runtime.'
+          echo 'A successful job proves execution of the repository Golden Path harness; it does not by itself satisfy the separate seven-day observation requirement.'
