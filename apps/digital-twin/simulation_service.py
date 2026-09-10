@@ -148,19 +148,23 @@ def simulate(req: SimulationRequest, _service: str = Depends(require_service)) -
     if input_size > MAX_INPUT_BYTES:
         raise HTTPException(status_code=413, detail="Simulation input exceeds configured limit")
 
+    acquired = False
     try:
         runs = get("simulation_runs", {"id": f"eq.{req.run_id}", "twin_id": f"eq.{req.twin_id}", "select": "id,twin_id"})
         twins = get("digital_twins", {"id": f"eq.{req.twin_id}", "select": "id,organization_id"})
         if len(runs) != 1 or len(twins) != 1 or twins[0].get("organization_id") != req.organization_id:
             raise HTTPException(status_code=409, detail="Simulation request rejected")
-        if not capacity.acquire(blocking=False):
+        acquired = capacity.acquire(blocking=False)
+        if not acquired:
             raise HTTPException(status_code=429, detail="Simulation capacity exhausted")
         patch_run(req.organization_id, req.run_id, req.twin_id, "running")
         executor.submit(run, req)
         return {"status": "started", "run_id": req.run_id}
     except HTTPException:
+        if acquired:
+            capacity.release()
         raise
     except Exception as exc:
-        if 'capacity' in locals() and capacity._value < MAX_WORKERS + MAX_QUEUED:
+        if acquired:
             capacity.release()
         raise HTTPException(status_code=500, detail="Simulation worker unavailable") from exc
