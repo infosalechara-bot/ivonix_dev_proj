@@ -46,13 +46,13 @@ public class KeyService {
     public String encrypt(UUID userId,UUID orgId,UUID keyId,String plaintext,UUID operationId){authorizeKey(keyId,userId,orgId,"encryption");return executeIdempotent(operationId,keyId,orgId,userId,"encrypt",plaintext,true);}
     public String decrypt(UUID userId,UUID orgId,UUID keyId,String ciphertext){return decrypt(userId,orgId,keyId,ciphertext,null);}
     public String decrypt(UUID userId,UUID orgId,UUID keyId,String ciphertext,UUID operationId){authorizeKey(keyId,userId,orgId,"encryption");return executeIdempotent(operationId,keyId,orgId,userId,"decrypt",ciphertext,false);}
-    public String encryptSystem(UUID orgId,UUID keyId,String plaintext){authorizeSystemKey(keyId,orgId,"encryption");return encryptInternal(keyId,plaintext,null);}
-    public String decryptSystem(UUID orgId,UUID keyId,String ciphertext){authorizeSystemKey(keyId,orgId,"encryption");return decryptInternal(keyId,ciphertext,null);}
+    public String encryptSystem(UUID orgId,UUID keyId,String plaintext){authorizeSystemKey(keyId,orgId,"encryption");return encryptInternal(keyId,plaintext,null,orgId);}
+    public String decryptSystem(UUID orgId,UUID keyId,String ciphertext){authorizeSystemKey(keyId,orgId,"encryption");return decryptInternal(keyId,ciphertext,null,orgId);}
 
     @Transactional
     private String executeIdempotent(UUID operationId,UUID keyId,UUID orgId,UUID actor,String op,String data,boolean encryption){
         if(data==null)throw new IllegalArgumentException(encryption?"plaintext required":"ciphertext required");
-        if(operationId==null) return encryption ? encryptInternal(keyId,data,actor) : decryptInternal(keyId,data,actor);
+        if(operationId==null) return encryption ? encryptInternal(keyId,data,actor,orgId) : decryptInternal(keyId,data,actor,orgId);
         Map<String,Object> existing = findOperation(operationId,orgId,keyId,actor,op);
         if(existing!=null){String status=(String)existing.get("status");String result=(String)existing.get(encryption?"result_ciphertext":"result_plaintext");if("success".equals(status)&&result!=null)return result;throw new IllegalStateException("Crypto operation is already in progress or failed; use a new operationId");}
         try { jdbc.update("insert into public.crypto_operations(operation_id,key_id,organization_id,operation_type,requested_by,status,caller) values (?,?,?,?,?,?,?)",operationId,keyId,orgId,op,actor,"started","ontology"); }
@@ -60,24 +60,24 @@ public class KeyService {
         try {
             String result=encryption?crypto("/v1/encrypt",new CryptoRequest(keyId,data)).ciphertext():crypto("/v1/decrypt",new CryptoRequest(keyId,data)).plaintext();
             if(result==null)throw new IllegalStateException("Crypto service returned no result");
-            int updated=jdbc.update("update public.crypto_operations set status='success', result_ciphertext=?, result_plaintext=? where operation_id=? and organization_id=? and status='started'",encryption?result:null,encryption?null:result,operationId,orgId);
+            int updated=jdbc.update("update public.crypto_operations set status='success', result_ciphertext=?, result_plaintext=?, completed_at=now() where operation_id=? and organization_id=? and status='started'",encryption?result:null,encryption?null:result,operationId,orgId);
             if(updated!=1)throw new IllegalStateException("Crypto operation completion lost");
             return result;
-        } catch(RuntimeException e){jdbc.update("update public.crypto_operations set status='failed' where operation_id=? and organization_id=? and status='started'",operationId,orgId);throw e;}
+        } catch(RuntimeException e){jdbc.update("update public.crypto_operations set status='failed', completed_at=now() where operation_id=? and organization_id=? and status='started'",operationId,orgId);throw e;}
     }
 
     private Map<String,Object> findOperation(UUID operationId,UUID orgId,UUID keyId,UUID actor,String op){
         try{return jdbc.queryForMap("select status,result_ciphertext,result_plaintext from public.crypto_operations where operation_id=? and organization_id=? and key_id=? and requested_by is not distinct from ? and operation_type=?",operationId,orgId,keyId,actor,op);}catch(Exception e){return null;}
     }
-    private String encryptInternal(UUID keyId,String plaintext,UUID actor){
+    private String encryptInternal(UUID keyId,String plaintext,UUID actor,UUID org){
         if(plaintext==null)throw new IllegalArgumentException("plaintext required");
         CryptoResponse r=crypto("/v1/encrypt",new CryptoRequest(keyId,plaintext));
-        if(r==null||r.ciphertext()==null)throw new IllegalStateException("Crypto service returned no ciphertext"); audit(keyId,null,"encrypt",actor,"success",null,r.ciphertext(),null); return r.ciphertext();
+        if(r==null||r.ciphertext()==null)throw new IllegalStateException("Crypto service returned no ciphertext"); audit(keyId,org,"encrypt",actor,"success",null,r.ciphertext(),null); return r.ciphertext();
     }
-    private String decryptInternal(UUID keyId,String ciphertext,UUID actor){
+    private String decryptInternal(UUID keyId,String ciphertext,UUID actor,UUID org){
         if(ciphertext==null)throw new IllegalArgumentException("ciphertext required");
         CryptoResponse r=crypto("/v1/decrypt",new CryptoRequest(keyId,ciphertext));
-        if(r==null||r.plaintext()==null)throw new IllegalStateException("Crypto service returned no plaintext"); audit(keyId,null,"decrypt",actor,"success",null,null,r.plaintext()); return r.plaintext();
+        if(r==null||r.plaintext()==null)throw new IllegalStateException("Crypto service returned no plaintext"); audit(keyId,org,"decrypt",actor,"success",null,null,r.plaintext()); return r.plaintext();
     }
     private CryptoResponse crypto(String path,CryptoRequest body){
         if(cryptoSecret==null||cryptoSecret.isBlank())throw new IllegalStateException("PULSE_CRYPTO_SERVICE_SECRET is required");
