@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import hmac
+import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from threading import BoundedSemaphore
 from typing import Any
 
 import requests
@@ -10,14 +13,22 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-app = FastAPI(title="PULSE Digital Twin Simulation Engine", version="1.1.0")
+app = FastAPI(title="PULSE Digital Twin Simulation Engine", version="1.2.0")
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 TWIN_SERVICE_SECRET = os.environ.get("PULSE_TWIN_SERVICE_SECRET", "")
+MAX_WORKERS = max(1, min(int(os.environ.get("PULSE_TWIN_MAX_WORKERS", "8")), 64))
+MAX_QUEUED = max(0, min(int(os.environ.get("PULSE_TWIN_MAX_QUEUED", "32")), 256))
+MAX_INPUT_BYTES = max(1024, min(int(os.environ.get("PULSE_TWIN_MAX_INPUT_BYTES", str(256 * 1024))), 1024 * 1024))
+
 bearer = HTTPBearer(auto_error=False)
 
 if not SUPABASE_URL or not SERVICE_KEY or not TWIN_SERVICE_SECRET:
     raise RuntimeError("Digital Twin requires Supabase credentials and PULSE_TWIN_SERVICE_SECRET")
+
+executor = ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix="pulse-twin")
+capacity = BoundedSemaphore(MAX_WORKERS + MAX_QUEUED)
+
 
 class SimulationRequest(BaseModel):
     organization_id: str
@@ -48,7 +59,7 @@ def patch_run(organization_id: str, run_id: str, twin_id: str, status: str, outp
         data["output_data"] = output
         data["completed_at"] = datetime.now(timezone.utc).isoformat()
     r = requests.patch(f"{SUPABASE_URL}/rest/v1/simulation_runs", headers=headers(), params={
-        "id": f"eq.{run_id}", "twin_id": f"eq.{twin_id}"
+        "id": f"eq.{run_id}", "twin_id": f"eq.{twin_id}", "organization_id": f"eq.{organization_id}"
     }, json=data, timeout=15)
     r.raise_for_status()
 
@@ -119,6 +130,8 @@ def run(req: SimulationRequest) -> None:
             patch_run(req.organization_id, req.run_id, req.twin_id, "failed", {"error": "simulation_failed"})
         except Exception:
             pass
+    finally:
+        capacity.release()
 
 
 @app.get("/health")
@@ -129,15 +142,25 @@ def health() -> dict[str, str]:
 @app.post("/simulate")
 def simulate(req: SimulationRequest, _service: str = Depends(require_service)) -> dict[str, str]:
     try:
+        input_size = len(json.dumps(req.input_data, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Simulation input is not serializable") from exc
+    if input_size > MAX_INPUT_BYTES:
+        raise HTTPException(status_code=413, detail="Simulation input exceeds configured limit")
+
+    try:
         runs = get("simulation_runs", {"id": f"eq.{req.run_id}", "twin_id": f"eq.{req.twin_id}", "select": "id,twin_id"})
         twins = get("digital_twins", {"id": f"eq.{req.twin_id}", "select": "id,organization_id"})
         if len(runs) != 1 or len(twins) != 1 or twins[0].get("organization_id") != req.organization_id:
             raise HTTPException(status_code=409, detail="Simulation request rejected")
+        if not capacity.acquire(blocking=False):
+            raise HTTPException(status_code=429, detail="Simulation capacity exhausted")
         patch_run(req.organization_id, req.run_id, req.twin_id, "running")
-        import threading
-        threading.Thread(target=run, args=(req,), daemon=True).start()
+        executor.submit(run, req)
         return {"status": "started", "run_id": req.run_id}
     except HTTPException:
         raise
     except Exception as exc:
+        if 'capacity' in locals() and capacity._value < MAX_WORKERS + MAX_QUEUED:
+            capacity.release()
         raise HTTPException(status_code=500, detail="Simulation worker unavailable") from exc
