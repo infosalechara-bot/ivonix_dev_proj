@@ -6,7 +6,6 @@ import pytest
 
 psycopg = pytest.importorskip("psycopg")
 
-
 DATABASE_URL = os.getenv("PULSE_STAGING_DATABASE_URL")
 pytestmark = pytest.mark.skipif(
     not DATABASE_URL,
@@ -20,20 +19,18 @@ def connect():
 
 def test_ten_concurrent_claimers_have_exactly_one_winner():
     org_id = uuid.uuid4()
-    job_id = uuid.uuid4()
     model_id = uuid.uuid4()
+    job_id = uuid.uuid4()
 
-    # The existing production schema requires a real model FK. The integration
-    # environment must provide a valid core_models row for model_id, or this test
-    # is intentionally not runnable. This keeps the gate against the real schema.
     with connect() as conn:
         with conn.cursor() as cur:
+            cur.execute("insert into public.organizations (id, name) values (%s, %s)", (org_id, f"lease-test-{org_id}"))
             cur.execute(
-                """
-                insert into public.inference_jobs
-                    (id, model_id, organization_id, input_data, status)
-                values (%s, %s, %s, %s::jsonb, 'queued')
-                """,
+                "insert into public.core_models (id, organization_id, name, framework) values (%s, %s, %s, 'onnx')",
+                (model_id, org_id, f"lease-test-model-{model_id}"),
+            )
+            cur.execute(
+                "insert into public.inference_jobs (id, model_id, organization_id, input_data, status) values (%s, %s, %s, %s::jsonb, 'queued')",
                 (job_id, model_id, org_id, '{"data":[1.0]}'),
             )
 
@@ -65,9 +62,12 @@ def test_ten_concurrent_claimers_have_exactly_one_winner():
     for thread in threads:
         thread.join(timeout=15)
 
-    assert not errors, errors
-    assert winners == [job_id]
-
-    with connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute("delete from public.inference_jobs where id=%s", (job_id,))
+    try:
+        assert not errors, errors
+        assert winners == [job_id]
+    finally:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("delete from public.inference_jobs where id=%s", (job_id,))
+                cur.execute("delete from public.core_models where id=%s", (model_id,))
+                cur.execute("delete from public.organizations where id=%s", (org_id,))
