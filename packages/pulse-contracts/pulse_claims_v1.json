@@ -1,0 +1,19 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://pulse-ivonix.site/contracts/pulse_claims_v1.json",
+  "title":"PULSE Authentication Claims v1",
+  "type":"object","additionalProperties":false,
+  "required":["sub","organizationId","role","scopes","actorType","sessionId","iat","exp","iss","aud"],
+  "properties":{
+    "sub":{"type":"string","minLength":1,"maxLength":128},
+    "organizationId":{"type":"string","format":"uuid"},
+    "role":{"type":"string","enum":["owner","admin","operator","viewer"]},
+    "scopes":{"type":"array","minItems":1,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-z][a-z0-9._:-]*$"}},
+    "actorType":{"type":"string","enum":["user","service","device","founder"]},
+    "sessionId":{"type":"string","minLength":1,"maxLength":128},
+    "iat":{"type":"integer","minimum":0},
+    "exp":{"type":"integer","minimum":0},
+    "iss":{"type":"string","const":"pulse"},
+    "aud":{"type":"string","const":"pulse-api"}
+  }
+}
