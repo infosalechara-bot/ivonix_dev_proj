@@ -1,0 +1,19 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://pulse.example/schemas/pulse_error_v1.json",
+  "title":"PulseErrorV1",
+  "type":"object",
+  "required":["error"],
+  "properties":{
+    "error":{"type":"object","required":["code","message","message_key","request_id"],"properties":{
+      "code":{"type":"string","pattern":"^[A-Z][A-Z0-9_]+$"},
+      "message":{"type":"string","minLength":1},
+      "message_key":{"type":"string","pattern":"^errors\\.[a-z0-9_.]+$"},
+      "details":{"type":["object","null"]},
+      "request_id":{"type":"string","pattern":"^req_[a-z0-9]{21}$"},
+      "docs_url":{"type":["string","null"],"format":"uri"}
+    }},
+    "error_legacy":{"type":["string","null"]},
+    "fields":{"type":["object","null"]}
+  }
+}
