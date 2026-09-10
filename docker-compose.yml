@@ -115,3 +115,26 @@ services:
       WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
       POLL_SECONDS: ${TRANSCRIPT_POLL_SECONDS:-10}
     restart: unless-stopped
+  reclaim-worker:
+    build: ./apps/reclaim-worker
+    expose: ["8092"]
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      PULSE_RECLAIM_WORKER_SECRET: ${PULSE_RECLAIM_WORKER_SECRET}
+      PULSE_RECLAIM_ROOT: /reclaim-inputs
+      PULSE_RECLAIM_OUTPUT: /reclaim-output
+    volumes:
+      - ${RECLAIM_INPUT_ROOT_HOST:-./reclaim-inputs}:/reclaim-inputs:ro
+      - ${RECLAIM_OUTPUT_ROOT_HOST:-./reclaim-output}:/reclaim-output:rw
+    restart: unless-stopped
+  founder-agent:
+    build: ./apps/founder-agent
+    expose: ["8094"]
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      PULSE_FOUNDER_ORGANIZATION_ID: ${PULSE_FOUNDER_ORGANIZATION_ID}
+      PULSE_FOUNDER_USER_ID: ${PULSE_FOUNDER_USER_ID}
+      PULSE_FOUNDER_AGENT_SECRET: ${PULSE_FOUNDER_AGENT_SECRET}
+    restart: unless-stopped
