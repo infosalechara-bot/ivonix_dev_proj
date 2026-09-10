@@ -9,6 +9,7 @@ on:
       - 'docker-compose.yml'
       - 'infra/emqx/**'
       - '.github/workflows/block1-build.yml'
+      - '.github/workflows/pulse-security-gates.yml'
   pull_request:
     paths:
       - 'apps/ontology/**'
@@ -16,6 +17,7 @@ on:
       - 'docker-compose.yml'
       - 'infra/emqx/**'
       - '.github/workflows/block1-build.yml'
+      - '.github/workflows/pulse-security-gates.yml'
 
 concurrency:
   group: block1-build-${{ github.ref }}
