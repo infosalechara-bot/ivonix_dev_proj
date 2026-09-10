@@ -21,6 +21,12 @@ services:
       PULSE_CERT_SIGNING_PUBLIC_KEY: ${PULSE_CERT_SIGNING_PUBLIC_KEY}
       PULSE_CERT_RENDERER_URL: ${PULSE_CERT_RENDERER_URL:-http://cert-renderer:8095}
       PULSE_CERT_RENDERER_SECRET: ${PULSE_CERT_RENDERER_SECRET}
+      PULSE_RECLAIM_WORKER_URL: ${PULSE_RECLAIM_WORKER_URL:-http://reclaim-worker:8092}
+      PULSE_RECLAIM_WORKER_SECRET: ${PULSE_RECLAIM_WORKER_SECRET}
+      PULSE_VERITAS_URL: ${PULSE_VERITAS_URL:-http://veritas:8096}
+      PULSE_VERITAS_SERVICE_SECRET: ${PULSE_VERITAS_SERVICE_SECRET}
+      PULSE_NL_TO_SQL_URL: ${PULSE_NL_TO_SQL_URL:-http://nl-to-sql:8097}
+      PULSE_NL_TO_SQL_SERVICE_SECRET: ${PULSE_NL_TO_SQL_SERVICE_SECRET}
       TURN_SHARED_SECRET: ${TURN_SHARED_SECRET}
       TURN_URLS: ${TURN_URLS}
       PULSE_CORS_ORIGINS: ${PULSE_CORS_ORIGINS:-http://localhost:5173}
@@ -31,14 +37,7 @@ services:
       PULSE_TWIN_URL: ${PULSE_TWIN_URL:-http://digital-twin:8091}
       PULSE_AI_TRAINING_URL: ${PULSE_AI_TRAINING_URL:-http://ai-training:8000}
       VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
-    depends_on:
-      - embedding
-      - ai
-      - key-service
-      - core-runtime
-      - digital-twin
-      - ai-training
-      - cert-renderer
+    depends_on: [embedding, ai, key-service, core-runtime, digital-twin, ai-training, cert-renderer, reclaim-worker, founder-agent, veritas, nl-to-sql]
     restart: unless-stopped
   frontend:
     build: ./apps/web
@@ -48,14 +47,12 @@ services:
   embedding:
     build: ./apps/embedding
     expose: ["8000"]
-    environment:
-      PULSE_EMBEDDING_SERVICE_SECRET: ${PULSE_EMBEDDING_SERVICE_SECRET}
+    environment: { PULSE_EMBEDDING_SERVICE_SECRET: ${PULSE_EMBEDDING_SERVICE_SECRET} }
     restart: unless-stopped
   ai:
     build: ./apps/ai
     expose: ["8000"]
-    environment:
-      PULSE_AI_SERVICE_SECRET: ${PULSE_AI_SERVICE_SECRET}
+    environment: { PULSE_AI_SERVICE_SECRET: ${PULSE_AI_SERVICE_SECRET} }
     restart: unless-stopped
   ai-training:
     build: ./apps/ai-training
@@ -86,8 +83,7 @@ services:
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
       PULSE_CORE_SERVICE_SECRET: ${PULSE_CORE_SERVICE_SECRET}
       CORE_MODEL_ROOT: /models
-    volumes:
-      - ${CORE_MODEL_ROOT_HOST:-./models}:/models:ro
+    volumes: ["${CORE_MODEL_ROOT_HOST:-./models}:/models:ro"]
     restart: unless-stopped
   digital-twin:
     build: ./apps/digital-twin
@@ -137,4 +133,20 @@ services:
       PULSE_FOUNDER_ORGANIZATION_ID: ${PULSE_FOUNDER_ORGANIZATION_ID}
       PULSE_FOUNDER_USER_ID: ${PULSE_FOUNDER_USER_ID}
       PULSE_FOUNDER_AGENT_SECRET: ${PULSE_FOUNDER_AGENT_SECRET}
+    restart: unless-stopped
+  veritas:
+    build: ./apps/veritas
+    expose: ["8096"]
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      PULSE_VERITAS_SERVICE_SECRET: ${PULSE_VERITAS_SERVICE_SECRET}
+    restart: unless-stopped
+  nl-to-sql:
+    build: ./apps/nl-to-sql
+    expose: ["8097"]
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      PULSE_NL_TO_SQL_SERVICE_SECRET: ${PULSE_NL_TO_SQL_SERVICE_SECRET}
     restart: unless-stopped
