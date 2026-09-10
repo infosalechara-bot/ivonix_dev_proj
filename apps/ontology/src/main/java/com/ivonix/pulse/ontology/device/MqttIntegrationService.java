@@ -2,6 +2,7 @@ package com.ivonix.pulse.ontology.device;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.eclipse.paho.mqttv5.client.MqttAsyncClient;
 import org.eclipse.paho.mqttv5.client.MqttConnectionOptions;
 import org.eclipse.paho.mqttv5.common.MqttMessage;
@@ -11,139 +12,32 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.*;
 
 @Service
 public class MqttIntegrationService {
-    private final JdbcTemplate jdbc;
-    private final ObjectMapper mapper;
-    private final String brokerUrl;
-    private final String username;
-    private final String password;
-    private final String webhookSecret;
-    private final String clientId;
-    private MqttAsyncClient client;
+    private final JdbcTemplate jdbc; private final ObjectMapper mapper; private final String brokerUrl; private final String username; private final String password; private final String webhookSecret; private final String clientId; private MqttAsyncClient client;
+    public MqttIntegrationService(JdbcTemplate jdbc,ObjectMapper mapper,@Value("${PULSE_MQTT_URL:tcp://emqx:1883}") String brokerUrl,@Value("${PULSE_MQTT_USERNAME:pulse-core}") String username,@Value("${PULSE_MQTT_PASSWORD:}") String password,@Value("${PULSE_MQTT_WEBHOOK_SECRET:}") String webhookSecret,@Value("${PULSE_MQTT_CLIENT_ID:pulse-core-publisher}") String clientId){this.jdbc=jdbc;this.mapper=mapper;this.brokerUrl=brokerUrl;this.username=username;this.password=password;this.webhookSecret=webhookSecret;this.clientId=clientId;}
 
-    public MqttIntegrationService(JdbcTemplate jdbc, ObjectMapper mapper,
-                                  @Value("${PULSE_MQTT_URL:tcp://emqx:1883}") String brokerUrl,
-                                  @Value("${PULSE_MQTT_USERNAME:pulse-core}") String username,
-                                  @Value("${PULSE_MQTT_PASSWORD:}") String password,
-                                  @Value("${PULSE_MQTT_WEBHOOK_SECRET:}") String webhookSecret,
-                                  @Value("${PULSE_MQTT_CLIENT_ID:pulse-core-publisher}") String clientId) {
-        this.jdbc = jdbc; this.mapper = mapper; this.brokerUrl = brokerUrl; this.username = username;
-        this.password = password; this.webhookSecret = webhookSecret; this.clientId = clientId;
-    }
+    public synchronized void publishCommand(UUID deviceId,UUID commandId,String commandType,JsonNode payload){ensureConnected();try{ObjectNode command=mapper.createObjectNode();command.put("commandId",commandId.toString());command.put("deviceId",deviceId.toString());command.put("commandType",commandType);command.put("issuedAt",Instant.now().toString());command.set("payload",payload==null?mapper.createObjectNode():payload);MqttMessage message=new MqttMessage(mapper.writeValueAsBytes(command));message.setQos(1);client.publish(topic(deviceId,"commands"),message).waitForCompletion(5000);}catch(Exception e){throw new IllegalStateException("MQTT command publish failed",e);}}
 
-    public synchronized void publishCommand(UUID deviceId, UUID commandId, String commandType, JsonNode payload) {
-        ensureConnected();
-        try {
-            ObjectNode command = mapper.createObjectNode();
-            command.put("commandId", commandId.toString());
-            command.put("deviceId", deviceId.toString());
-            command.put("commandType", commandType);
-            command.put("issuedAt", Instant.now().toString());
-            command.set("payload", payload == null ? mapper.createObjectNode() : payload);
-            MqttMessage message = new MqttMessage(mapper.writeValueAsBytes(command));
-            message.setQos(1);
-            client.publish(topic(deviceId, "commands"), message).waitForCompletion(5000);
-        } catch (Exception e) {
-            throw new IllegalStateException("MQTT command publish failed", e);
-        }
-    }
+    @Transactional public void handleWebhook(JsonNode body){if(body==null||!body.isObject())throw new IllegalArgumentException("Webhook envelope required");String topic=text(body,"topic");if(topic==null||(!topic.contains("/telemetry")&&!topic.contains("/ack")))return;UUID deviceId=parseUuid(text(body,"clientid"));JsonNode payload=body.get("payload");if(payload==null)throw new IllegalArgumentException("MQTT payload missing");try{if(payload.isTextual())payload=mapper.readTree(payload.asText());ingest(deviceId,payload);}catch(IllegalStateException|SecurityException|IllegalArgumentException e){throw e;}catch(Exception e){throw new IllegalArgumentException("Invalid MQTT JSON payload",e);}}
 
-    @Transactional
-    public void handleWebhook(JsonNode body) {
-        if (body == null || !body.isObject()) throw new IllegalArgumentException("Webhook envelope required");
-        String topic = text(body, "topic");
-        if (topic == null || !topic.contains("/telemetry") && !topic.contains("/ack")) return;
-        String clientId = text(body, "clientid");
-        UUID deviceId = parseUuid(clientId);
-        JsonNode payload = body.get("payload");
-        if (payload == null) throw new IllegalArgumentException("MQTT payload missing");
-        if (payload.isTextual()) payload = mapper.readTree(payload.asText());
-        ingest(deviceId, payload);
-    }
+    @Transactional public void ingest(UUID deviceId,JsonNode message){validateEnvelope(deviceId,message);UUID messageId=parseUuid(message.get("messageId").asText());UUID orgId=jdbc.queryForObject("select organization_id from public.key_devices where id=? and status='active' and revoked_at is null and credential_expires_at>now()",UUID.class,deviceId);if(orgId==null)throw new SecurityException("Device unavailable");UUID existing=jdbc.query("select id from public.events where organization_id=? and external_event_id=? limit 1",rs->rs.next()?(UUID)rs.getObject(1):null,orgId,messageId.toString());if(existing!=null)return;long sequence=message.get("sequence").asLong();int advanced=jdbc.update("update public.key_devices set last_sequence=?,last_seen_at=now() where id=? and status='active' and (last_sequence is null or last_sequence < ?)",sequence,deviceId,sequence);if(advanced!=1)throw new IllegalStateException("Replay or out-of-order device sequence");jdbc.update("update public.devices set status='online',last_seen=now() where id=? and organization_id=?",deviceId,orgId);String type=message.get("messageType").asText();if("TELEMETRY".equals(type)){String data=json(message.get("payload"));jdbc.update("insert into public.device_telemetry(device_id,organization_id,timestamp,data) values (?,?,?,?::jsonb)",deviceId,orgId,Instant.parse(message.get("sentAt").asText()),data);UUID eventTypeId=jdbc.queryForObject("select id from public.event_types where name='device_telemetry_received' and event_version=1 and is_active=true",UUID.class);jdbc.update("insert into public.events(id,event_type_id,organization_id,source_service,event_time,payload,correlation_id,created_at,version,external_event_id) values (?,?,?,?,?,?::jsonb,?,now(),1,?)",UUID.randomUUID(),eventTypeId,orgId,"pulse-core",Instant.parse(message.get("sentAt").asText()),json(message),messageId.toString(),messageId.toString());jdbc.update("insert into public.audit_logs(user_id,action,resource_type,resource_id,created_at) values (?,?,?,?,now())",null,"telemetry.received","device",deviceId.toString());}else if("COMMAND_ACK".equals(type)){handleAck(deviceId,orgId,message.get("payload"));}}
 
-    @Transactional
-    public void ingest(UUID deviceId, JsonNode message) {
-        validateEnvelope(deviceId, message);
-        UUID messageId = UUID.fromString(message.get("messageId").asText());
-        UUID existing = jdbc.query("select id from public.events where organization_id=(select organization_id from public.key_devices where id=?) and external_event_id=? limit 1", rs -> rs.next() ? (UUID) rs.getObject(1) : null, deviceId, messageId.toString());
-        if (existing != null) return;
+    private void handleAck(UUID deviceId,UUID orgId,JsonNode payload){if(payload==null||!payload.hasNonNull("commandId"))throw new IllegalArgumentException("ACK commandId required");UUID commandId=parseUuid(payload.get("commandId").asText());int updated=jdbc.update("update public.device_commands set status='acknowledged',acknowledged_at=now(),ack_payload=?::jsonb where id=? and device_id=? and organization_id=? and status in ('published','pending')",json(payload),commandId,deviceId,orgId);if(updated!=1)throw new IllegalStateException("Command ACK does not match an active command");jdbc.update("insert into public.audit_logs(user_id,action,resource_type,resource_id,created_at) values (?,?,?,?,now())",null,"command.acknowledged","device_command",commandId.toString());}
 
-        Map<String,Object> identity = jdbc.queryForMap("select organization_id,status from public.key_devices where id=? and revoked_at is null and credential_expires_at>now()", deviceId);
-        UUID orgId = (UUID) identity.get("organization_id");
-        long sequence = message.get("sequence").asLong();
-        int advanced = jdbc.update("update public.key_devices set last_sequence=?,last_seen_at=now() where id=? and status='active' and (last_sequence is null or last_sequence < ?)", sequence, deviceId, sequence);
-        if (advanced != 1) throw new IllegalStateException("Replay or out-of-order device sequence");
-
-        jdbc.update("update public.devices set status='online',last_seen=now() where id=? and organization_id=?", deviceId, orgId);
-
-        String type = message.get("messageType").asText();
-        if ("TELEMETRY".equals(type)) {
-            jdbc.update("insert into public.device_telemetry(device_id,organization_id,timestamp,data) values (?,?,?,?::jsonb)", deviceId, orgId, Instant.parse(message.get("sentAt").asText()), mapper.writeValueAsString(message.get("payload")));
-        } else if ("COMMAND_ACK".equals(type)) {
-            handleAck(deviceId, orgId, message.get("payload"));
-        }
-
-        UUID eventTypeId = jdbc.queryForObject("select id from public.event_types where name='device_telemetry_received' and event_version=1 and is_active=true", UUID.class);
-        jdbc.update("insert into public.events(id,event_type_id,organization_id,source_service,event_time,payload,correlation_id,created_at,version,external_event_id) values (?,?,?,?,?,?::jsonb,?,now(),1,?)",
-                UUID.randomUUID(), eventTypeId, orgId, "pulse-core", Instant.parse(message.get("sentAt").asText()), mapper.writeValueAsString(message), messageId.toString(), messageId.toString());
-        jdbc.update("insert into public.audit_logs(user_id,action,resource_type,resource_id,created_at) values (?,?,?,?,now())", null, "telemetry.received", "device", deviceId.toString());
-    }
-
-    private void handleAck(UUID deviceId, UUID orgId, JsonNode payload) {
-        if (payload == null || !payload.hasNonNull("commandId")) throw new IllegalArgumentException("ACK commandId required");
-        UUID commandId = parseUuid(payload.get("commandId").asText());
-        int updated = jdbc.update("update public.device_commands set status='acknowledged',acknowledged_at=now(),ack_payload=?::jsonb where id=? and device_id=? and organization_id=? and status in ('published','pending')", mapper.writeValueAsString(payload), commandId, deviceId, orgId);
-        if (updated != 1) throw new IllegalStateException("Command ACK does not match an active command");
-        jdbc.update("insert into public.audit_logs(user_id,action,resource_type,resource_id,created_at) values (?,?,?,?,now())", null, "command.acknowledged", "device_command", commandId.toString());
-    }
-
-    public Map<String,Object> authenticate(String username, String deviceToken) {
-        UUID deviceId = parseUuid(username);
-        var device = findDevice(deviceToken);
-        if (!device.deviceId().equals(deviceId)) throw new SecurityException("MQTT identity mismatch");
-        String base = "pulse/v1/devices/" + deviceId;
-        return Map.of("result", "allow", "is_superuser", false, "client_attrs", Map.of("device_id", deviceId.toString(), "organization_id", device.organizationId().toString()), "acl", List.of(
-                Map.of("permission","allow","action","publish","topic",base+"/telemetry","qos",List.of(0,1)),
-                Map.of("permission","allow","action","publish","topic",base+"/ack","qos",List.of(0,1)),
-                Map.of("permission","allow","action","subscribe","topic",base+"/commands","qos",List.of(0,1))
-        ));
-    }
-
-    public boolean webhookSecretMatches(String supplied) { return webhookSecret != null && !webhookSecret.isBlank() && webhookSecret.equals(supplied); }
-
-    private UniversalDevice findDevice(String token) {
-        return jdbc.queryForObject("select id,organization_id from public.key_devices where credential_hash=encode(digest(?, 'sha256'),'hex') and status='active' and revoked_at is null and credential_expires_at>now()", (rs,n)->new UniversalDevice((UUID)rs.getObject("id"),(UUID)rs.getObject("organization_id")), token);
-    }
-
-    private void ensureConnected() {
-        try {
-            if (client == null) client = new MqttAsyncClient(brokerUrl, clientId + "-" + UUID.randomUUID());
-            if (!client.isConnected()) {
-                if (password == null || password.isBlank()) throw new IllegalStateException("PULSE_MQTT_PASSWORD is required");
-                MqttConnectionOptions options = new MqttConnectionOptions();
-                options.setAutomaticReconnect(true); options.setCleanStart(true);
-                options.setUserName(username); options.setPassword(password.getBytes(StandardCharsets.UTF_8));
-                client.connect(options).waitForCompletion(5000);
-            }
-        } catch (Exception e) { throw new IllegalStateException("MQTT broker connection failed", e); }
-    }
-
-    private void validateEnvelope(UUID pathDeviceId, JsonNode m) {
-        if (!m.isObject()) throw new IllegalArgumentException("Device message must be an object");
-        for (String f : List.of("schemaVersion","messageId","deviceId","messageType","sentAt","sequence","payload")) if (!m.hasNonNull(f)) throw new IllegalArgumentException("Missing field: " + f);
-        if (!"1.0".equals(m.get("schemaVersion").asText())) throw new IllegalArgumentException("Unsupported schemaVersion");
-        if (!pathDeviceId.equals(parseUuid(m.get("deviceId").asText()))) throw new SecurityException("Device identity mismatch");
-        if (!Set.of("TELEMETRY","HEARTBEAT","COMMAND_ACK","STATE","ALARM","ENROLLMENT").contains(m.get("messageType").asText())) throw new IllegalArgumentException("Unsupported messageType");
-        if (!m.get("payload").isObject()) throw new IllegalArgumentException("payload must be an object");
-        if (m.get("sequence").asLong() < 0) throw new IllegalArgumentException("sequence must be non-negative");
-    }
-
-    private String topic(UUID deviceId, String suffix) { return "pulse/v1/devices/" + deviceId + "/" + suffix; }
+    public Map<String,Object> authenticate(String mqttUsername,String deviceToken){UUID deviceId=parseUuid(mqttUsername);UniversalDevice device=findDevice(deviceToken);if(!device.deviceId().equals(deviceId))throw new SecurityException("MQTT identity mismatch");String base="pulse/v1/devices/"+deviceId;return Map.of("result","allow","is_superuser",false,"client_attrs",Map.of("device_id",deviceId.toString(),"organization_id",device.organizationId().toString()),"acl",List.of(Map.of("permission","allow","action","publish","topic",base+"/telemetry","qos",List.of(0,1)),Map.of("permission","allow","action","publish","topic",base+"/ack","qos",List.of(0,1)),Map.of("permission","allow","action","subscribe","topic",base+"/commands","qos",List.of(0,1))));}
+    public boolean webhookSecretMatches(String supplied){return webhookSecret!=null&&!webhookSecret.isBlank()&&webhookSecret.equals(supplied);}
+    private UniversalDevice findDevice(String token){return jdbc.queryForObject("select id,organization_id from public.key_devices where credential_hash=? and status='active' and revoked_at is null and credential_expires_at>now()",(rs,n)->new UniversalDevice((UUID)rs.getObject("id"),(UUID)rs.getObject("organization_id")),sha256(token));}
+    private void ensureConnected(){try{if(client==null)client=new MqttAsyncClient(brokerUrl,clientId+"-"+UUID.randomUUID());if(!client.isConnected()){if(password==null||password.isBlank())throw new IllegalStateException("PULSE_MQTT_PASSWORD is required");MqttConnectionOptions options=new MqttConnectionOptions();options.setAutomaticReconnect(true);options.setCleanStart(true);options.setUserName(username);options.setPassword(password.getBytes(StandardCharsets.UTF_8));client.connect(options).waitForCompletion(5000);}}catch(Exception e){throw new IllegalStateException("MQTT broker connection failed",e);}}
+    private void validateEnvelope(UUID pathDeviceId,JsonNode m){if(!m.isObject())throw new IllegalArgumentException("Device message must be an object");for(String f:List.of("schemaVersion","messageId","deviceId","messageType","sentAt","sequence","payload"))if(!m.hasNonNull(f))throw new IllegalArgumentException("Missing field: "+f);if(!"1.0".equals(m.get("schemaVersion").asText()))throw new IllegalArgumentException("Unsupported schemaVersion");if(!pathDeviceId.equals(parseUuid(m.get("deviceId").asText())))throw new SecurityException("Device identity mismatch");if(!Set.of("TELEMETRY","HEARTBEAT","COMMAND_ACK","STATE","ALARM","ENROLLMENT").contains(m.get("messageType").asText()))throw new IllegalArgumentException("Unsupported messageType");if(!m.get("payload").isObject())throw new IllegalArgumentException("payload must be an object");if(m.get("sequence").asLong()<0)throw new IllegalArgumentException("sequence must be non-negative");}
+    private String json(JsonNode n){try{return mapper.writeValueAsString(n);}catch(Exception e){throw new IllegalArgumentException("JSON serialization failed",e);}}
+    private String topic(UUID deviceId,String suffix){return "pulse/v1/devices/"+deviceId+"/"+suffix;}
     private String text(JsonNode n,String f){JsonNode v=n.get(f);return v==null||v.isNull()?null:v.asText();}
     private UUID parseUuid(String v){try{return UUID.fromString(v);}catch(Exception e){throw new SecurityException("Invalid device identity");}}
-    private record UniversalDevice(UUID deviceId, UUID organizationId) {}
+    private String sha256(String value){try{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));}catch(Exception e){throw new IllegalStateException(e);}}
+    private record UniversalDevice(UUID deviceId,UUID organizationId){}
 }
