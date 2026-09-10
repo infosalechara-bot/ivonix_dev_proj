@@ -1,0 +1,13 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://pulse.example/schemas/pulse_pagination_v1.json",
+  "title":"PulsePaginationV1",
+  "type":"object",
+  "required":["items","cursor","has_more"],
+  "properties":{
+    "items":{"type":"array"},
+    "cursor":{"type":["string","null"]},
+    "has_more":{"type":"boolean"},
+    "total":{"type":["integer","null"],"minimum":0}
+  }
+}
