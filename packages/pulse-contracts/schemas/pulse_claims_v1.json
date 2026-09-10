@@ -1,0 +1,20 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://pulse.example/schemas/pulse_claims_v1.json",
+  "title":"PulseClaimsV1",
+  "type":"object",
+  "required":["sub","iat","exp","organization_id","iss","aud"],
+  "properties":{
+    "sub":{"type":"string","minLength":1},
+    "iat":{"type":"integer","minimum":0},
+    "exp":{"type":"integer","minimum":0},
+    "organization_id":{"type":"string","minLength":1},
+    "org_id":{"type":"string","minLength":1},
+    "role":{"type":"string","enum":["owner","admin","operator","viewer"]},
+    "scopes":{"type":"array","items":{"type":"string"},"uniqueItems":true},
+    "actor_type":{"type":"string","enum":["user","service","device","founder"]},
+    "session_id":{"type":"string","minLength":1},
+    "iss":{"type":"string","const":"pulse"},
+    "aud":{"type":"string","const":"pulse-api"}
+  }
+}
