@@ -1,5 +1,6 @@
 package com.ivonix.pulse.ontology.reclaim;
 
+import com.ivonix.pulse.ontology.founder.FounderActionGate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -11,16 +12,20 @@ import java.util.*;
 
 @Service
 public class RecoveryService {
+    private static final String FOUNDER_ACTION = "recovery.execute";
+    private static final String FOUNDER_RESOURCE_TYPE = "recovery_job";
     private final JdbcTemplate jdbc;
     private final RestTemplate restTemplate;
+    private final FounderActionGate founderActionGate;
     private final String workerUrl;
     private final String workerSecret;
 
-    public RecoveryService(JdbcTemplate jdbc, RestTemplate restTemplate,
+    public RecoveryService(JdbcTemplate jdbc, RestTemplate restTemplate, FounderActionGate founderActionGate,
                            @Value("${PULSE_RECLAIM_WORKER_URL:http://recovery-worker:8092}") String workerUrl,
                            @Value("${PULSE_RECLAIM_WORKER_SECRET:}") String workerSecret) {
         this.jdbc = jdbc;
         this.restTemplate = restTemplate;
+        this.founderActionGate = founderActionGate;
         this.workerUrl = workerUrl.replaceAll("/$", "");
         this.workerSecret = workerSecret;
     }
@@ -30,12 +35,21 @@ public class RecoveryService {
         validateTarget(r);
         if (r.deviceId() != null && !deviceInOrg(r.deviceId(), r.organizationId())) throw new SecurityException("Device is not part of the organization");
         UUID jobId = UUID.randomUUID();
+
+        // FND-026 is consumed before the irreversible recovery job creation/dispatch.
+        // The resource identifier is the server-generated job ID, preventing approval reuse
+        // across recovery operations and preventing the client from choosing the side-effect ID.
+        String receipt = founderActionGate.requireApprovedAndConsume(
+                userId, r.organizationId(), r.founderConfirmationId(),
+                FOUNDER_ACTION, FOUNDER_RESOURCE_TYPE, jobId.toString());
+
         jdbc.update("""
             insert into recovery_jobs
               (id, organization_id, device_id, job_type, target_path, target_table,
                target_identifier, status, created_by)
             values (?, ?, ?, ?, ?, ?, ?, 'queued', ?)
             """, jobId, r.organizationId(), r.deviceId(), r.jobType(), r.targetPath(), r.targetTable(), r.targetIdentifier(), userId);
+        log(jobId, userId, "founder_approval_consumed", Map.of("action", FOUNDER_ACTION, "resource_type", FOUNDER_RESOURCE_TYPE, "receipt", receipt));
         log(jobId, userId, "job_created", Map.of("job_type", r.jobType()));
         triggerWorker(jobId, r, userId);
         return jobId;
