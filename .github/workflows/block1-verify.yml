@@ -8,7 +8,7 @@ on:
       - 'scripts/check_registry_coverage.py'
       - '.github/workflows/block1-verify.yml'
   push:
-    branches: [main]
+    branches: [main, pulse-production-bulk-hardening]
     paths:
       - 'packages/pulse-contracts/**'
       - 'scripts/verify_block1.sh'
