@@ -12,4 +12,5 @@ public record RecoveryJobRequest(
         @NotBlank @Pattern(regexp = "file|message|database|system") String jobType,
         @Size(max = 1000) String targetPath,
         @Size(max = 256) String targetTable,
-        @Size(max = 512) String targetIdentifier) {}
+        @Size(max = 512) String targetIdentifier,
+        @NotNull UUID founderConfirmationId) {}
