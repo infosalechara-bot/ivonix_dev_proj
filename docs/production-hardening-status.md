@@ -6,7 +6,7 @@ This is a living gate record. A capability is **implemented** only when code exi
 
 - Branch: `pulse-production-bulk-hardening`
 - PR: #6
-- Current head: `08614cb00725b9b7d2c1618fcac712c95a336043`
+- Current head: `fe11b2bca673200a7d83415e94fe9ea12385159f`
 - Production migrations: not applied by this hardening pass.
 
 ## Gates
@@ -15,15 +15,15 @@ This is a living gate record. A capability is **implemented** only when code exi
 |---|---|---|
 | Original P0/P1 audit closure | IN PROGRESS | Foundation changes exist, but every original finding still needs explicit regression evidence. |
 | Device/event contracts | IN PROGRESS | Versioned contracts and Event Bus tests exist; full cross-service contract execution remains. |
-| Authentication | IN PROGRESS | Security API endpoints now reject missing/invalid bearer tokens; complete endpoint/worker negative-test sweep remains. |
-| Authorization | IN PROGRESS | Security API now verifies organization membership and device ownership before tenant-scoped writes/anomaly processing; full resource/action matrix remains. |
-| Tenant isolation | IN PROGRESS | Security API queries are organization-scoped; full cross-tenant negative integration suite remains. |
+| Authentication | VERIFIED-PARTIAL | Security API endpoints reject missing/invalid bearer tokens; CI typecheck and regression tests pass. Full endpoint/worker negative-test sweep remains. |
+| Authorization | VERIFIED-PARTIAL | Security API verifies organization membership and device ownership before tenant-scoped writes/anomaly processing. Full resource/action matrix remains. |
+| Tenant isolation | VERIFIED-PARTIAL | Security API queries are organization-scoped; full cross-tenant negative integration suite remains. |
 | Privacy / DSAR | IMPLEMENTED, VERIFY | PRV-056 implementation and migration staged; end-to-end DSAR/erasure/legal-hold verification remains. |
 | Trust / anti-fraud | IMPLEMENTED, VERIFY | TRU-057 implementation exists; production signal/rule and false-positive testing remains. |
 | FinOps | IMPLEMENTED, VERIFY | FIN-058 implementation exists; billing integration and anomaly validation remain. |
 | Runbook | IMPLEMENTED, VERIFY | RNB-059 implementation exists; OBSERVE-to-Runbook alert integration remains. |
 | Accessibility | AUTOMATED | WCAG AA audit script is part of Web CI; current run must pass before certification. |
-| API build/test coverage | AUTOMATED | Nest API now has strict TypeScript configuration and an executable authentication-boundary regression suite in CI. |
+| API build/test coverage | VERIFIED | API CI run `34436056243` completed successfully: TypeScript typecheck and security-boundary tests passed. |
 | Security / OWASP API | NOT CERTIFIED | Requires full executable API security/negative tests and review beyond the current auth boundary. |
 | Integration / E2E | NOT CERTIFIED | Complete machine ingestion → intelligence → command → acknowledgement flow remains. |
 | Failure / chaos | NOT CERTIFIED | Service, database, Event Bus, network and recovery failure scenarios remain. |
