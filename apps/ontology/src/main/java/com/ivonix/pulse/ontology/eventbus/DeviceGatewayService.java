@@ -14,6 +14,8 @@ import java.util.*;
 /** Authenticated machine ingress. The device credential determines tenant ownership; callers cannot choose organization_id. */
 @Service
 public class DeviceGatewayService {
+    private static final int MAX_MESSAGE_BYTES = 256 * 1024;
+    private static final int MAX_PAYLOAD_DEPTH = 16;
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
     public DeviceGatewayService(JdbcTemplate jdbc, ObjectMapper mapper) { this.jdbc = jdbc; this.mapper = mapper; }
@@ -26,16 +28,15 @@ public class DeviceGatewayService {
         if (message.sequence() < 0) throw new IllegalArgumentException("sequence must be non-negative");
         if (!"1.0".equals(message.schemaVersion())) throw new IllegalArgumentException("Unsupported device message schema version");
         if (!Set.of("TELEMETRY", "HEARTBEAT", "STATE", "ALARM").contains(message.messageType())) throw new IllegalArgumentException("Unsupported device message type");
+        validatePayloadBounds(message.payload());
 
         DeviceIdentity device = authenticate(credential);
         String expected = device.deviceId().toString();
         if (!expected.equals(message.deviceId()) || (headerDeviceId != null && !expected.equals(headerDeviceId))) throw new SecurityException("Device identity mismatch");
 
-        // Exact duplicates are idempotent and must not advance the device sequence.
         UUID duplicate = findExisting(device.organizationId(), message.messageId());
         if (duplicate != null) return new IngestResult(duplicate, device.deviceId(), device.organizationId(), true, "duplicate");
 
-        // Atomically reject replays and out-of-order messages. NULL means no message has been accepted yet.
         int advanced = jdbc.update("update public.key_devices set last_sequence=?,last_seen_at=now() where id=? and status='active' and credential_expires_at>now() and (last_sequence is null or last_sequence < ?)", message.sequence(), device.deviceId(), message.sequence());
         if (advanced != 1) throw new SecurityException("Replay or out-of-order device message");
 
@@ -55,6 +56,18 @@ public class DeviceGatewayService {
         return new IngestResult(eventId, device.deviceId(), device.organizationId(), false, "accepted");
     }
 
+    private void validatePayloadBounds(Map<String,Object> payload) {
+        try {
+            if (payload != null && mapper.writeValueAsBytes(payload).length > MAX_MESSAGE_BYTES) throw new IllegalArgumentException("Device payload exceeds 256 KiB");
+        } catch (JsonProcessingException e) { throw new IllegalArgumentException("Invalid device payload", e); }
+        if (payload != null && depth(payload, 0) > MAX_PAYLOAD_DEPTH) throw new IllegalArgumentException("Device payload nesting exceeds 16 levels");
+    }
+    private int depth(Object value, int current) {
+        if (current > MAX_PAYLOAD_DEPTH) return current;
+        if (value instanceof Map<?,?> m) { int max=current; for (Object v:m.values()) max=Math.max(max,depth(v,current+1)); return max; }
+        if (value instanceof Collection<?> c) { int max=current; for (Object v:c) max=Math.max(max,depth(v,current+1)); return max; }
+        return current;
+    }
     private DeviceIdentity authenticate(String credential) {
         try { return jdbc.queryForObject("select id,organization_id from public.key_devices where credential_hash=? and status='active' and credential_expires_at>now()", (rs,n) -> new DeviceIdentity((UUID)rs.getObject("id"), (UUID)rs.getObject("organization_id")), sha256(credential.trim())); }
         catch (org.springframework.dao.EmptyResultDataAccessException e) { throw new SecurityException("Invalid or expired device credential"); }
