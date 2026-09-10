@@ -100,7 +100,6 @@ public class EventBusService {
         List<Map<String,Object>> rows = jdbc.queryForList(
                 "select * from public.claim_event_delivery(?,?)", workerId, leaseSeconds);
         for (Map<String,Object> r : rows) deliver(r);
-        // A single atomic RPC returns at most one row by design. Repeated calls preserve ownership isolation.
         for (int i = rows.size(); i < n; i++) {
             List<Map<String,Object>> next = jdbc.queryForList("select * from public.claim_event_delivery(?,?)", workerId, leaseSeconds);
             if (next.isEmpty()) break;
@@ -113,8 +112,13 @@ public class EventBusService {
         String endpoint = (String) r.get("endpoint_url");
         UUID subscriptionId = (UUID) r.get("subscription_id");
         UUID eventId = (UUID) r.get("event_id");
+        UUID operationId = (UUID) r.get("operation_id");
+        if (operationId == null) throw new IllegalStateException("Delivery operation_id is required");
         try {
             if (endpoint != null) {
+                // Validate at subscription time and again immediately before network I/O.
+                // This closes the common DNS-rebinding window; a future hardened HTTP client
+                // should additionally pin the validated destination at connection time.
                 validateEndpoint(endpoint);
                 Map<String,Object> envelope = new LinkedHashMap<>();
                 envelope.put("id", eventId);
@@ -133,14 +137,16 @@ public class EventBusService {
                         .header("X-PULSE-Webhook-Timestamp", Long.toString(timestamp))
                         .header("X-PULSE-Signature", signature)
                         .header("X-PULSE-Event-ID", String.valueOf(eventId))
+                        .header("Idempotency-Key", operationId.toString())
                         .POST(HttpRequest.BodyPublishers.ofString(body)).build();
                 HttpResponse<Void> resp = http.send(req, HttpResponse.BodyHandlers.discarding());
                 if (resp.statusCode() < 200 || resp.statusCode() >= 300) throw new IllegalStateException("Subscriber HTTP " + resp.statusCode());
             }
-            jdbc.update("update public.event_deliveries set status='delivered',attempts=attempts+1,last_attempt_at=now(),delivered_at=now(),error_message=null,worker_id=null,lease_until=null where id=? and worker_id=? and lease_until > now() and status in ('pending','failed')", delivery, workerId);
+            int updated = jdbc.update("update public.event_deliveries set status='delivered',attempts=attempts+1,last_attempt_at=now(),delivered_at=now(),completed_at=now(),last_error=null,error_message=null,worker_id=null,lease_until=null where id=? and operation_id=? and worker_id=? and lease_until > now() and status in ('pending','failed')", delivery, operationId, workerId);
+            if (updated != 1) throw new IllegalStateException("Delivery ownership was lost before terminal success");
         } catch (Exception e) {
             String message = String.valueOf(e.getMessage());
-            jdbc.update("update public.event_deliveries set status=case when attempts+1>=? then 'dead_letter' else 'failed' end,attempts=attempts+1,last_attempt_at=now(),error_message=?,worker_id=null,lease_until=null where id=? and worker_id=? and lease_until > now() and status in ('pending','failed')", MAX_ATTEMPTS, message.substring(0, Math.min(1000, message.length())), delivery, workerId);
+            jdbc.update("update public.event_deliveries set status=case when attempts+1>=? then 'dead_letter' else 'failed' end,attempts=attempts+1,last_attempt_at=now(),last_error=?,error_message=?,worker_id=null,lease_until=null where id=? and operation_id=? and worker_id=? and lease_until > now() and status in ('pending','failed')", MAX_ATTEMPTS, message.substring(0, Math.min(1000, message.length())), message.substring(0, Math.min(1000, message.length())), delivery, operationId, workerId);
         }
     }
 
@@ -174,12 +180,23 @@ public class EventBusService {
         }
         try {
             for (InetAddress address : InetAddress.getAllByName(uri.getHost())) {
-                if (address.isAnyLocalAddress() || address.isLoopbackAddress() || address.isLinkLocalAddress() || address.isSiteLocalAddress() || isSpecial(address)) {
-                    throw new IllegalArgumentException("Webhook destination is not publicly routable");
-                }
+                rejectNonPublic(address);
             }
         } catch (java.net.UnknownHostException e) {
             throw new IllegalArgumentException("Webhook hostname could not be resolved", e);
+        }
+    }
+
+    private void rejectNonPublic(InetAddress address) {
+        if (address.isAnyLocalAddress() || address.isLoopbackAddress() || address.isLinkLocalAddress() || address.isSiteLocalAddress() || address.isMulticastAddress() || isSpecial(address)) {
+            throw new IllegalArgumentException("Webhook destination is not publicly routable");
+        }
+        byte[] b = address.getAddress();
+        if (b.length == 16 && isIpv4Mapped(b)) {
+            int a=b[12]&255, c=b[13]&255, d=b[14]&255;
+            if (a == 127 || a == 10 || a == 0 || (a == 169 && c == 254) || (a == 172 && c >= 16 && c <= 31) || (a == 192 && c == 168)) {
+                throw new IllegalArgumentException("Webhook destination is not publicly routable");
+            }
         }
     }
 
@@ -189,7 +206,15 @@ public class EventBusService {
             int a=b[0]&255, c=b[1]&255, d=b[2]&255;
             return a == 0 || (a == 100 && c >= 64 && c <= 127) || (a == 192 && c == 0) || (a == 198 && (d == 18 || d == 19));
         }
-        return address.isMulticastAddress() || address.isAnyLocalAddress();
+        int first = b[0] & 255;
+        return first >= 0xfc && first <= 0xfd;
+    }
+
+    private boolean isIpv4Mapped(InetAddress address) {
+        byte[] b = address.getAddress();
+        if (b.length != 16) return false;
+        for (int i = 0; i < 10; i++) if (b[i] != 0) return false;
+        return b[10] == (byte) 0xff && b[11] == (byte) 0xff;
     }
 
     private void requireMember(UUID org, UUID user) {
