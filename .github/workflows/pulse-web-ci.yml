@@ -29,3 +29,19 @@ jobs:
         run: npm install
       - name: Build
         run: npm run build
+      - name: Start preview server
+        run: npm run preview -- --host 127.0.0.1 > /tmp/pulse-web-preview.log 2>&1 & echo $! > /tmp/pulse-web-preview.pid
+      - name: Wait for preview server
+        run: |
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4173/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/pulse-web-preview.log
+          exit 1
+      - name: WCAG AA audit
+        run: npm run a11y:audit
+      - name: Stop preview server
+        if: always()
+        run: |
+          if [ -f /tmp/pulse-web-preview.pid ]; then kill "$(cat /tmp/pulse-web-preview.pid)" || true; fi
