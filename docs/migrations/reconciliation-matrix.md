@@ -59,7 +59,7 @@ The live Supabase project currently reports the following migration history, ord
 | 20260910185649 | dedupe_pulse_event_registry_indexes_v1 |
 | 20260910185737 | retire_noncanonical_event_vocabulary_v1 |
 
-Production migration count at inspection: **40**.
+Production migration count at inspection: **41** (fresh live query; last version `20260910185737`).
 
 ## Repository ledger — current hardening branch
 
@@ -162,6 +162,10 @@ Production has `key_operation_idempotency` at `20260910155726`, while the branch
 ### 6. Exact production migration SQL is the missing artifact
 
 Current schema inspection can prove post-state, but cannot reconstruct historical intent with certainty where multiple migrations may have changed the same object. For production-only migrations, the exact source SQL should be recovered from the deployment/release history or an authoritative database backup/PITR artifact before backfilling the repository.
+
+### 7. Fresh ledger verification corrected the earlier count
+
+A fresh live query reports **41** production migrations, not 40. The ledger above is therefore the current authoritative count for this reconciliation snapshot.
 
 ## Current gate
 
