@@ -27,8 +27,8 @@ public class FounderController {
   public FounderService.Message message(Authentication auth,@RequestBody FounderService.MessageRequest request){return founder.sendMessage(UUID.fromString(auth.getName()),org(auth),request);}
 
   @PostMapping("/confirmations")
-  public FounderService.ConfirmationRequest requestConfirmation(Authentication auth,@RequestBody Map<String,String> body){
-    return founder.requestConfirmation(UUID.fromString(auth.getName()),org(auth),body.get("action"));
+  public FounderService.ConfirmationRequest requestConfirmation(Authentication auth,@RequestBody ConfirmationRequest request){
+    return founder.requestConfirmation(UUID.fromString(auth.getName()),org(auth),request.action(),request.resourceType(),request.resourceId());
   }
 
   @PostMapping("/confirmations/{id}/decision")
@@ -40,5 +40,6 @@ public class FounderController {
   public Map<String,Integer> expire(Authentication auth){return Map.of("expired",founder.expirePending(UUID.fromString(auth.getName()),org(auth)));}
 
   private UUID org(Authentication auth){Object details=auth.getDetails();if(details instanceof UUID u)return u;return UUID.fromString(String.valueOf(details));}
+  public record ConfirmationRequest(String action,String resourceType,String resourceId){}
   public record DecisionRequest(String token,boolean approve){}
 }
