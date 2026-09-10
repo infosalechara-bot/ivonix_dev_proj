@@ -1,1 +1,15 @@
-{"event_id":"01HZ8X2K5M6P7Q8R9S0T1V2W3X","event_type":"device.registered","event_version":1,"envelope_version":1,"occurred_at":"2025-01-15T08:30:00.000Z","producer":"pulse-core","aggregate_type":"device","aggregate_id":"01HZ8X2K5M6P7Q8R9S0T1V2W4Y","org_id":"01HZ8X2K5M6P7Q8R9S0T1V2W5Z","correlation_id":"01HZ8X2K5M6P7Q8R9S0T1V2W60","causation_id":null,"payload":{"device_id":"device-001"},"signature":"c2lnbmF0dXJl"}
+{
+  "event_id":"01HZ8X2K5M6P7Q8R9S0T1V2W3X",
+  "event_type":"device_telemetry_received",
+  "event_version":1,
+  "envelope_version":1,
+  "occurred_at":"2025-01-15T08:30:00.000Z",
+  "producer":"pulse-core",
+  "aggregate_type":"device",
+  "aggregate_id":"01HZ8X2K5M6P7Q8R9S0T1V2W4Y",
+  "org_id":"01HZ8X2K5M6P7Q8R9S0T1V2W5Z",
+  "correlation_id":"01HZ8X2K5M6P7Q8R9S0T1V2W60",
+  "causation_id":null,
+  "payload":{"device_id":"device-001","organization_id":"01HZ8X2K5M6P7Q8R9S0T1V2W5Z","timestamp":"2025-01-15T08:30:00.000Z","measurements":{"temperature_c":42.5,"humidity_pct":38.0}},
+  "signature":"MEUCIQDf7f8L7dFakedForGoldenFixtureTestingOnlyDoNotUseInProduction"
+}
