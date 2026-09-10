@@ -3,16 +3,17 @@ export type PulseRole = "owner" | "admin" | "operator" | "viewer";
 export type PulseActorType = "user" | "service" | "device" | "founder";
 
 export interface PulseEvent<T = unknown> {
-  eventId: string; // ULID
-  eventType: string;
-  eventVersion: number;
-  occurredAt: string; // UTC, exactly YYYY-MM-DDTHH:mm:ss.SSSZ
+  event_id: string; // ULID
+  event_type: string;
+  event_version: number;
+  envelope_version: 1;
+  occurred_at: string; // UTC, exactly YYYY-MM-DDTHH:mm:ss.SSSZ
   producer: string;
-  aggregateType: string;
-  aggregateId: string;
-  organizationId: string | null;
-  correlationId: string;
-  causationId: string | null;
+  aggregate_type: string;
+  aggregate_id: string;
+  org_id: string | null;
+  correlation_id: string;
+  causation_id: string | null;
   payload: T;
   signature: string;
 }
@@ -21,29 +22,32 @@ export interface PulseError {
   error: {
     code: string;
     message: string;
-    messageKey: string;
+    message_key: string;
     details?: Record<string, unknown>;
-    requestId: string;
-    docsUrl?: string;
+    request_id: string;
+    docs_url?: string;
   };
+  error_legacy?: string;
+  fields?: Record<string, unknown>;
 }
 
 export interface PulsePage<T> {
   items: T[];
   cursor: string | null;
-  hasMore: boolean;
-  total?: number;
+  has_more: boolean;
+  total: number | null;
 }
 
 export interface PulseClaims {
   sub: string;
-  organizationId: string;
-  role: PulseRole;
-  scopes: string[];
-  actorType: PulseActorType;
-  sessionId: string;
   iat: number;
   exp: number;
+  organization_id: string;
+  org_id: string;
+  role: PulseRole;
+  scopes: string[];
+  actor_type: PulseActorType;
+  session_id: string;
   iss: "pulse";
   aud: "pulse-api";
 }
