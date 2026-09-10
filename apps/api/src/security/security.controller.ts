@@ -11,6 +11,11 @@ export class SecurityController {
     return this.security.authenticate(authorization.slice(7).trim());
   }
 
+  @Get('health')
+  health(@Headers('authorization') authorization: string | undefined) {
+    return this.userId(authorization).then((userId) => ({ status: 'ok', authenticated: true, userId }));
+  }
+
   @Post('events')
   ingestEvent(@Headers('authorization') authorization: string | undefined, @Body() dto: SecurityEventDto) {
     return this.userId(authorization).then((userId) => this.security.ingestEvent(dto, userId));
