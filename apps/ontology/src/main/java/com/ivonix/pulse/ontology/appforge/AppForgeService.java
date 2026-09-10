@@ -38,7 +38,7 @@ public class AppForgeService {
         if(tables+models.size()>limits.maxTables)throw new IllegalStateException("AppForge tenant table quota exceeded");
         if(provisioning>=limits.maxConcurrent)throw new IllegalStateException("AppForge tenant provisioning capacity exhausted");
         UUID app=UUID.randomUUID();
-        try{db.update("insert into public.app_definitions(id,organization_id,name,description,data_models,created_by,provisioning_status) values(?,?,?,?,?::jsonb,?,?)",app,org,name.trim(),description,json.writeValueAsString(models),user,"PROVISIONING");}catch(Exception e){throw new IllegalArgumentException("Invalid app definition",e);}
+        try{db.update("insert into public.app_definitions(id,organization_id,name,description,data_models,created_by,provisioning_status) values(?,?,?,?,?::jsonb,?,?)",app,org,name.trim(),description,jsonString(models),user,"PROVISIONING");}catch(Exception e){throw new IllegalArgumentException("Invalid app definition",e);}
         for(ModelDef m:models){
             String table="app_"+app.toString().replace("-","").substring(0,12)+"_"+m.name().toLowerCase(Locale.ROOT);
             StringBuilder sql=new StringBuilder("create table if not exists ").append(q(table)).append(" (id uuid primary key default gen_random_uuid(), organization_id uuid not null references public.organizations(id) on delete cascade");
@@ -48,7 +48,7 @@ public class AppForgeService {
             db.execute("alter table "+q(table)+" enable row level security");
             db.execute("create policy "+q("appforge_"+table+"_tenant")+" on "+q(table)+" for all to authenticated using (public.is_org_member(organization_id)) with check (public.is_org_member(organization_id))");
             db.execute("create index if not exists "+q(table+"_org_created_idx")+" on "+q(table)+" (organization_id,created_at desc)");
-            db.update("insert into public.app_generated_tables(app_id,table_name,schema) values(?,?,?::jsonb)",app,table,json.writeValueAsString(m));
+            db.update("insert into public.app_generated_tables(app_id,table_name,schema) values(?,?,?::jsonb)",app,table,jsonString(m));
         }
         db.update("update public.app_definitions set provisioning_status='READY' where id=? and organization_id=? and provisioning_status='PROVISIONING'",app,org);
         return app;
@@ -62,6 +62,7 @@ public class AppForgeService {
     private void validateName(String n){if(n==null||!IDENT.matcher(n).matches())throw new IllegalArgumentException("Invalid identifier");}
     private String sqlType(String t){return switch(t){case "text"->"text";case "number"->"numeric";case "date"->"date";case "boolean"->"boolean";case "timestamp"->"timestamptz";case "json"->"jsonb";default->throw new IllegalArgumentException("Unsupported field type");};}
     private String q(String s){validateName(s);return '"'+s+'"';}
+    private String jsonString(Object value){try{return json.writeValueAsString(value);}catch(com.fasterxml.jackson.core.JsonProcessingException e){throw new IllegalArgumentException("Invalid JSON value",e);}}
     private record Limits(int maxApps,int maxTables,int maxConcurrent){}
     public record ModelDef(String name,List<FieldDef> fields){}public record FieldDef(String name,String type){}
 }
