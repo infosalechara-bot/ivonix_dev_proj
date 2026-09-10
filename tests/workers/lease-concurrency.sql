@@ -1,18 +1,24 @@
 -- Execute against a staging/ephemeral database only.
--- The harness must invoke claim_worker_job concurrently from two independent sessions.
+-- This is a two-session harness specification for the actual transcript-worker RPC.
+-- Run Session A and Session B concurrently with the same eligible recording.
 
-begin;
+select to_regprocedure('public.claim_meet_recording(text,integer)') as claim_function;
 
-select to_regprocedure('public.claim_worker_job(text,integer,integer)') as claim_function;
+-- Session A:
+--   select * from public.claim_meet_recording('worker-a', 300);
+-- Session B, started while A is still active:
+--   select * from public.claim_meet_recording('worker-b', 300);
+-- Required: the same recording id must appear in at most one result set.
 
--- Required invariants for the atomic lease implementation:
--- 1. Two simultaneous claims for the same eligible row return at most one row.
--- 2. A claim writes a unique lease token and worker identity.
--- 3. A non-owner cannot complete or fail the claimed job.
+-- After A's lease expires, B must be able to reclaim the same recording:
+--   select * from public.claim_meet_recording('worker-b', 30);
+
+-- Required invariants:
+-- 1. FOR UPDATE SKIP LOCKED prevents two workers from claiming the same row concurrently.
+-- 2. Each successful claim records worker identity, lease expiry and increments attempts.
+-- 3. Completion/failure by a non-owner updates zero rows.
 -- 4. An expired lease becomes claimable by another worker.
--- 5. A non-expired lease remains unavailable to other workers.
+-- 5. A non-expired lease remains unavailable to another worker.
 
--- The actual two-session execution is intentionally outside a single SQL transaction;
--- use psql/pgbench/CI to run these statements concurrently and save both result sets.
-
-rollback;
+-- The repository test verifies the SQL contract; actual concurrent execution belongs in
+-- staging/ephemeral CI where two independent DB sessions and result capture are available.
