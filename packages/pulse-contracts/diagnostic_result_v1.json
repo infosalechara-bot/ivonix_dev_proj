@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PULSE Diagnostic Result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "engineType", "modelId", "modelVersion", "probableFault", "confidence", "recommendedActions", "doNotDisassemble", "evidence"],
+  "properties": {
+    "schemaVersion": {"type": "string", "const": "1.0"},
+    "engineType": {"type": "string", "enum": ["RULE_ENGINE", "STATISTICAL_MODEL", "ML_MODEL", "FOUNDATION_MODEL", "HYBRID_MODEL", "HUMAN_REVIEW"]},
+    "modelId": {"type": "string", "minLength": 1, "maxLength": 128},
+    "modelVersion": {"type": "string", "minLength": 1, "maxLength": 64},
+    "probableFault": {"type": "string", "minLength": 1, "maxLength": 512},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "recommendedActions": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 512}},
+    "doNotDisassemble": {"type": "boolean"},
+    "evidence": {"type": "array", "items": {"type": "string", "maxLength": 2048}}
+  }
+}

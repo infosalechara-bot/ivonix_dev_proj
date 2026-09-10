@@ -1,0 +1,18 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "title":"PULSE Device Message v1",
+  "type":"object","additionalProperties":false,
+  "required":["schemaVersion","messageId","deviceId","messageType","sentAt","sequence","payload"],
+  "properties":{
+    "schemaVersion":{"type":"string","const":"1.0"},
+    "messageId":{"type":"string","format":"uuid"},
+    "deviceId":{"type":"string","format":"uuid"},
+    "messageType":{"type":"string","enum":["TELEMETRY","HEARTBEAT","COMMAND_ACK","STATE","ALARM","ENROLLMENT"]},
+    "sentAt":{"type":"string","format":"date-time"},
+    "sequence":{"type":"integer","minimum":0},
+    "protocol":{"type":"string","maxLength":64},
+    "payload":{"type":"object"},
+    "signature":{"type":"string","minLength":16,"maxLength":4096},
+    "keyId":{"type":"string","maxLength":128}
+  }
+}

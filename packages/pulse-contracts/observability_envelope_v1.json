@@ -1,0 +1,19 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "title":"PULSE Observability Envelope v1",
+  "type":"object","additionalProperties":false,
+  "required":["schemaVersion","traceId","operation","createdAt"],
+  "properties":{
+    "schemaVersion":{"type":"string","const":"1.0"},
+    "traceId":{"type":"string","minLength":8,"maxLength":128},
+    "correlationId":{"type":"string","maxLength":128},
+    "requestId":{"type":"string","maxLength":128},
+    "organizationId":{"type":"string","format":"uuid"},
+    "actorId":{"type":"string","maxLength":128},
+    "serviceId":{"type":"string","maxLength":128},
+    "deviceId":{"type":"string","format":"uuid"},
+    "operation":{"type":"string","minLength":1,"maxLength":256},
+    "createdAt":{"type":"string","format":"date-time"},
+    "schemaVersionObserved":{"type":"string","maxLength":32}
+  }
+}

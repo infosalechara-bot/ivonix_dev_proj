@@ -12,12 +12,19 @@ services:
       PULSE_MASTER_KEY: ${PULSE_MASTER_KEY}
       PULSE_CRYPTO_SERVICE_SECRET: ${PULSE_CRYPTO_SERVICE_SECRET}
       PULSE_AI_SERVICE_SECRET: ${PULSE_AI_SERVICE_SECRET}
+      PULSE_CORE_SERVICE_SECRET: ${PULSE_CORE_SERVICE_SECRET}
+      PULSE_TWIN_SERVICE_SECRET: ${PULSE_TWIN_SERVICE_SECRET}
+      PULSE_EMBEDDING_SERVICE_SECRET: ${PULSE_EMBEDDING_SERVICE_SECRET}
+      PULSE_AI_TRAINING_SERVICE_SECRET: ${PULSE_AI_TRAINING_SERVICE_SECRET}
       PULSE_CORS_ORIGINS: ${PULSE_CORS_ORIGINS:-http://localhost:5173}
       PULSE_EMBEDDING_URL: ${PULSE_EMBEDDING_URL:-http://embedding:8000}
       PULSE_AI_URL: ${PULSE_AI_URL:-http://ai:8000}
       PULSE_CRYPTO_URL: ${PULSE_CRYPTO_URL:-http://key-service:8092}
+      PULSE_CORE_URL: ${PULSE_CORE_URL:-http://core-runtime:8091}
+      PULSE_TWIN_URL: ${PULSE_TWIN_URL:-http://digital-twin:8091}
+      PULSE_AI_TRAINING_URL: ${PULSE_AI_TRAINING_URL:-http://ai-training:8000}
       VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
-    depends_on: [embedding, ai, key-service]
+    depends_on: [embedding, ai, key-service, core-runtime, digital-twin, ai-training]
     restart: unless-stopped
   frontend:
     build: ./apps/web
@@ -27,12 +34,26 @@ services:
   embedding:
     build: ./apps/embedding
     expose: ["8000"]
+    environment:
+      PULSE_EMBEDDING_SERVICE_SECRET: ${PULSE_EMBEDDING_SERVICE_SECRET}
     restart: unless-stopped
   ai:
     build: ./apps/ai
     expose: ["8000"]
     environment:
       PULSE_AI_SERVICE_SECRET: ${PULSE_AI_SERVICE_SECRET}
+    restart: unless-stopped
+  ai-training:
+    build: ./apps/ai-training
+    expose: ["8000"]
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      PULSE_AI_TRAINING_SERVICE_SECRET: ${PULSE_AI_TRAINING_SERVICE_SECRET}
+      MODEL_ROOT: /models
+    volumes:
+      - ${AI_MODEL_ROOT_HOST:-./models}:/models:rw
+      - ${AI_DATA_ROOT_HOST:-./data}:/data:ro
     restart: unless-stopped
   key-service:
     build: ./apps/key-service
@@ -42,4 +63,23 @@ services:
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
       PULSE_MASTER_KEY: ${PULSE_MASTER_KEY}
       PULSE_CRYPTO_SERVICE_SECRET: ${PULSE_CRYPTO_SERVICE_SECRET}
+    restart: unless-stopped
+  core-runtime:
+    build: ./apps/core-runtime
+    expose: ["8091"]
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      PULSE_CORE_SERVICE_SECRET: ${PULSE_CORE_SERVICE_SECRET}
+      CORE_MODEL_ROOT: /models
+    volumes:
+      - ${CORE_MODEL_ROOT_HOST:-./models}:/models:ro
+    restart: unless-stopped
+  digital-twin:
+    build: ./apps/digital-twin
+    expose: ["8091"]
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      PULSE_TWIN_SERVICE_SECRET: ${PULSE_TWIN_SERVICE_SECRET}
     restart: unless-stopped

@@ -1,0 +1,39 @@
+import importlib
+
+
+def load_module(monkeypatch):
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role")
+    monkeypatch.setenv("PULSE_TWIN_SERVICE_SECRET", "twin-secret")
+    return importlib.import_module("simulation_service")
+
+
+def test_service_auth_rejects_missing_credentials(monkeypatch):
+    module = load_module(monkeypatch)
+    from fastapi import HTTPException
+
+    try:
+        module.require_service(None)
+        assert False, "missing credentials must fail"
+    except HTTPException as exc:
+        assert exc.status_code == 401
+
+
+def test_service_auth_accepts_exact_bearer(monkeypatch):
+    module = load_module(monkeypatch)
+    from fastapi.security import HTTPAuthorizationCredentials
+
+    credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="twin-secret")
+    assert module.require_service(credentials) == "pulse-digital-twin"
+
+
+def test_simulation_request_requires_organization_scope(monkeypatch):
+    module = load_module(monkeypatch)
+    request = module.SimulationRequest(organization_id="org-a", twin_id="twin-a", run_id="run-a")
+    assert request.organization_id == "org-a"
+
+
+def test_thermal_simulation_is_deterministic(monkeypatch):
+    module = load_module(monkeypatch)
+    result = module.simulate_thermal({"ambient_temp": 20, "cooling_coefficient": 0.1}, {"current_temp": 30, "heat_source": 5})
+    assert result == {"temperature": 34.0, "ambient_temperature": 20.0}

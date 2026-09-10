@@ -1,0 +1,19 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "title":"PULSE Command Lifecycle v1",
+  "type":"object","additionalProperties":false,
+  "required":["schemaVersion","commandId","deviceId","organizationId","commandType","requestedAt","expiresAt","status"],
+  "properties":{
+    "schemaVersion":{"type":"string","const":"1.0"},
+    "commandId":{"type":"string","format":"uuid"},
+    "deviceId":{"type":"string","format":"uuid"},
+    "organizationId":{"type":"string","format":"uuid"},
+    "commandType":{"type":"string","minLength":1,"maxLength":128},
+    "requestedAt":{"type":"string","format":"date-time"},
+    "expiresAt":{"type":"string","format":"date-time"},
+    "status":{"type":"string","enum":["REQUESTED","AUTHORIZED","DISPATCHED","ACKNOWLEDGED","SUCCEEDED","FAILED","EXPIRED","CANCELLED"]},
+    "idempotencyKey":{"type":"string","minLength":8,"maxLength":256},
+    "parameters":{"type":"object"},
+    "result":{"type":"object"}
+  }
+}

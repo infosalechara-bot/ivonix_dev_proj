@@ -1,0 +1,67 @@
+name: PULSE Python Services CI
+
+on:
+  pull_request:
+    paths:
+      - 'apps/core-runtime/**'
+      - 'apps/digital-twin/**'
+      - 'apps/embedding/**'
+      - 'apps/ai-training/**'
+      - 'packages/pulse-contracts/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/pulse-python-services-ci.yml'
+  push:
+    branches: [main, pulse-foundation-hardening, pulse-foundation-gate2]
+
+jobs:
+  python-services:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: core-runtime
+            path: apps/core-runtime
+          - name: digital-twin
+            path: apps/digital-twin
+          - name: embedding
+            path: apps/embedding
+          - name: ai-training
+            path: apps/ai-training
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: ${{ matrix.path }}/requirements.txt
+      - name: Install service dependencies and test runner
+        run: python -m pip install -r ${{ matrix.path }}/requirements.txt pytest
+      - name: Compile Python sources
+        working-directory: ${{ matrix.path }}
+        run: python -m compileall -q .
+      - name: Run service tests
+        working-directory: ${{ matrix.path }}
+        env:
+          PYTHONPATH: .
+        run: python -m pytest -q
+
+  contract-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate JSON contracts
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          for p in pathlib.Path('packages/pulse-contracts').glob('*.json'):
+              json.loads(p.read_text())
+              print('valid', p)
+          PY
+
+  compose-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Docker Compose configuration
+        run: docker compose config
