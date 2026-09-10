@@ -64,12 +64,14 @@ services:
   embedding:
     build: ./apps/embedding
     expose: ["8000"]
-    environment: { PULSE_EMBEDDING_SERVICE_SECRET: ${PULSE_EMBEDDING_SERVICE_SECRET} }
+    environment:
+      PULSE_EMBEDDING_SERVICE_SECRET: ${PULSE_EMBEDDING_SERVICE_SECRET}
     restart: unless-stopped
   ai:
     build: ./apps/ai
     expose: ["8000"]
-    environment: { PULSE_AI_SERVICE_SECRET: ${PULSE_AI_SERVICE_SECRET} }
+    environment:
+      PULSE_AI_SERVICE_SECRET: ${PULSE_AI_SERVICE_SECRET}
     restart: unless-stopped
   ai-training:
     build: ./apps/ai-training
