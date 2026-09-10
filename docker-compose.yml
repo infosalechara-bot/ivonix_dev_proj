@@ -8,6 +8,7 @@ services:
       DATABASE_PASSWORD: ${DATABASE_PASSWORD}
       SUPABASE_URL: ${SUPABASE_URL}
       SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
       PULSE_JWT_SECRET: ${PULSE_JWT_SECRET}
       PULSE_MASTER_KEY: ${PULSE_MASTER_KEY}
       PULSE_CRYPTO_SERVICE_SECRET: ${PULSE_CRYPTO_SERVICE_SECRET}
@@ -16,6 +17,12 @@ services:
       PULSE_TWIN_SERVICE_SECRET: ${PULSE_TWIN_SERVICE_SECRET}
       PULSE_EMBEDDING_SERVICE_SECRET: ${PULSE_EMBEDDING_SERVICE_SECRET}
       PULSE_AI_TRAINING_SERVICE_SECRET: ${PULSE_AI_TRAINING_SERVICE_SECRET}
+      PULSE_CERT_SIGNING_PRIVATE_KEY: ${PULSE_CERT_SIGNING_PRIVATE_KEY}
+      PULSE_CERT_SIGNING_PUBLIC_KEY: ${PULSE_CERT_SIGNING_PUBLIC_KEY}
+      PULSE_CERT_RENDERER_URL: ${PULSE_CERT_RENDERER_URL:-http://cert-renderer:8095}
+      PULSE_CERT_RENDERER_SECRET: ${PULSE_CERT_RENDERER_SECRET}
+      TURN_SHARED_SECRET: ${TURN_SHARED_SECRET}
+      TURN_URLS: ${TURN_URLS}
       PULSE_CORS_ORIGINS: ${PULSE_CORS_ORIGINS:-http://localhost:5173}
       PULSE_EMBEDDING_URL: ${PULSE_EMBEDDING_URL:-http://embedding:8000}
       PULSE_AI_URL: ${PULSE_AI_URL:-http://ai:8000}
@@ -24,7 +31,7 @@ services:
       PULSE_TWIN_URL: ${PULSE_TWIN_URL:-http://digital-twin:8091}
       PULSE_AI_TRAINING_URL: ${PULSE_AI_TRAINING_URL:-http://ai-training:8000}
       VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
-    depends_on: [embedding, ai, key-service, core-runtime, digital-twin, ai-training]
+    depends_on: [embedding, ai, key-service, core-runtime, digital-twin, ai-training, cert-renderer]
     restart: unless-stopped
   frontend:
     build: ./apps/web
@@ -34,14 +41,12 @@ services:
   embedding:
     build: ./apps/embedding
     expose: ["8000"]
-    environment:
-      PULSE_EMBEDDING_SERVICE_SECRET: ${PULSE_EMBEDDING_SERVICE_SECRET}
+    environment: { PULSE_EMBEDDING_SERVICE_SECRET: ${PULSE_EMBEDDING_SERVICE_SECRET} }
     restart: unless-stopped
   ai:
     build: ./apps/ai
     expose: ["8000"]
-    environment:
-      PULSE_AI_SERVICE_SECRET: ${PULSE_AI_SERVICE_SECRET}
+    environment: { PULSE_AI_SERVICE_SECRET: ${PULSE_AI_SERVICE_SECRET} }
     restart: unless-stopped
   ai-training:
     build: ./apps/ai-training
@@ -51,9 +56,7 @@ services:
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
       PULSE_AI_TRAINING_SERVICE_SECRET: ${PULSE_AI_TRAINING_SERVICE_SECRET}
       MODEL_ROOT: /models
-    volumes:
-      - ${AI_MODEL_ROOT_HOST:-./models}:/models:rw
-      - ${AI_DATA_ROOT_HOST:-./data}:/data:ro
+    volumes: ["${AI_MODEL_ROOT_HOST:-./models}:/models:rw", "${AI_DATA_ROOT_HOST:-./data}:/data:ro"]
     restart: unless-stopped
   key-service:
     build: ./apps/key-service
@@ -72,8 +75,7 @@ services:
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
       PULSE_CORE_SERVICE_SECRET: ${PULSE_CORE_SERVICE_SECRET}
       CORE_MODEL_ROOT: /models
-    volumes:
-      - ${CORE_MODEL_ROOT_HOST:-./models}:/models:ro
+    volumes: ["${CORE_MODEL_ROOT_HOST:-./models}:/models:ro"]
     restart: unless-stopped
   digital-twin:
     build: ./apps/digital-twin
@@ -82,4 +84,22 @@ services:
       SUPABASE_URL: ${SUPABASE_URL}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
       PULSE_TWIN_SERVICE_SECRET: ${PULSE_TWIN_SERVICE_SECRET}
+    restart: unless-stopped
+  cert-renderer:
+    build: ./apps/cert-renderer
+    expose: ["8095"]
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      PULSE_CERT_RENDERER_SECRET: ${PULSE_CERT_RENDERER_SECRET}
+    restart: unless-stopped
+  transcript-worker:
+    build: ./apps/transcript-worker
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      WHISPER_MODEL: ${WHISPER_MODEL:-base}
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-auto}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
+      POLL_SECONDS: ${TRANSCRIPT_POLL_SECONDS:-10}
     restart: unless-stopped
