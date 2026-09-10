@@ -31,7 +31,14 @@ services:
       PULSE_TWIN_URL: ${PULSE_TWIN_URL:-http://digital-twin:8091}
       PULSE_AI_TRAINING_URL: ${PULSE_AI_TRAINING_URL:-http://ai-training:8000}
       VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
-    depends_on: [embedding, ai, key-service, core-runtime, digital-twin, ai-training, cert-renderer]
+    depends_on:
+      - embedding
+      - ai
+      - key-service
+      - core-runtime
+      - digital-twin
+      - ai-training
+      - cert-renderer
     restart: unless-stopped
   frontend:
     build: ./apps/web
@@ -41,12 +48,14 @@ services:
   embedding:
     build: ./apps/embedding
     expose: ["8000"]
-    environment: { PULSE_EMBEDDING_SERVICE_SECRET: ${PULSE_EMBEDDING_SERVICE_SECRET} }
+    environment:
+      PULSE_EMBEDDING_SERVICE_SECRET: ${PULSE_EMBEDDING_SERVICE_SECRET}
     restart: unless-stopped
   ai:
     build: ./apps/ai
     expose: ["8000"]
-    environment: { PULSE_AI_SERVICE_SECRET: ${PULSE_AI_SERVICE_SECRET} }
+    environment:
+      PULSE_AI_SERVICE_SECRET: ${PULSE_AI_SERVICE_SECRET}
     restart: unless-stopped
   ai-training:
     build: ./apps/ai-training
@@ -56,7 +65,9 @@ services:
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
       PULSE_AI_TRAINING_SERVICE_SECRET: ${PULSE_AI_TRAINING_SERVICE_SECRET}
       MODEL_ROOT: /models
-    volumes: ["${AI_MODEL_ROOT_HOST:-./models}:/models:rw", "${AI_DATA_ROOT_HOST:-./data}:/data:ro"]
+    volumes:
+      - ${AI_MODEL_ROOT_HOST:-./models}:/models:rw
+      - ${AI_DATA_ROOT_HOST:-./data}:/data:ro
     restart: unless-stopped
   key-service:
     build: ./apps/key-service
@@ -75,7 +86,8 @@ services:
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
       PULSE_CORE_SERVICE_SECRET: ${PULSE_CORE_SERVICE_SECRET}
       CORE_MODEL_ROOT: /models
-    volumes: ["${CORE_MODEL_ROOT_HOST:-./models}:/models:ro"]
+    volumes:
+      - ${CORE_MODEL_ROOT_HOST:-./models}:/models:ro
     restart: unless-stopped
   digital-twin:
     build: ./apps/digital-twin
