@@ -64,7 +64,7 @@ jobs:
           assert files, 'No Supabase migrations found'
           versions = []
           for path in files:
-              match = re.match(r'^(\d{14})_', path.name)
+              match = re.match(r'^(\d{12}|\d{14})_', path.name)
               assert match, f'Invalid migration filename: {path.name}'
               versions.append((match.group(1), path.name))
           ordered = [v for v, _ in versions]
@@ -72,7 +72,7 @@ jobs:
 
           for _, name in versions:
               assert not name.startswith(('00000000000000_', '99999999999999_')), f'Invalid sentinel migration: {name}'
-          print(f'Validated {len(files)} migration files with unique 14-digit versions.')
+          print(f'Validated {len(files)} migration files with unique 12- or 14-digit versions.')
           PY
       - name: Reject destructive migration primitives without explicit review marker
         shell: bash
