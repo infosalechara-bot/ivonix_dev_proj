@@ -11,15 +11,16 @@ from typing import Any
 import requests
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-app = FastAPI(title="PULSE Digital Twin Simulation Engine", version="1.2.0")
+app = FastAPI(title="PULSE Digital Twin Simulation Engine", version="1.3.0")
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 TWIN_SERVICE_SECRET = os.environ.get("PULSE_TWIN_SERVICE_SECRET", "")
 MAX_WORKERS = max(1, min(int(os.environ.get("PULSE_TWIN_MAX_WORKERS", "8")), 64))
 MAX_QUEUED = max(0, min(int(os.environ.get("PULSE_TWIN_MAX_QUEUED", "32")), 256))
 MAX_INPUT_BYTES = max(1024, min(int(os.environ.get("PULSE_TWIN_MAX_INPUT_BYTES", str(256 * 1024))), 1024 * 1024))
+SIMULATION_SCHEMA_VERSION = "1.0"
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -31,10 +32,13 @@ capacity = BoundedSemaphore(MAX_WORKERS + MAX_QUEUED)
 
 
 class SimulationRequest(BaseModel):
-    organization_id: str
-    twin_id: str
-    run_id: str
-    input_data: dict[str, Any] = Field(default_factory=dict)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+    schema_version: str = Field(alias="schemaVersion")
+    organization_id: str = Field(alias="organizationId")
+    twin_id: str = Field(alias="twinId")
+    run_id: str = Field(alias="runId")
+    input_data: dict[str, Any] = Field(default_factory=dict, alias="inputData")
+    correlation_id: str = Field(alias="correlationId")
 
 
 def require_service(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> str:
@@ -105,10 +109,12 @@ def simulate_energy(params: dict[str, Any], inputs: dict[str, Any]) -> dict[str,
 
 def run(req: SimulationRequest) -> None:
     try:
+        if req.schema_version != SIMULATION_SCHEMA_VERSION:
+            raise ValueError("Unsupported simulation schema version")
         twins = get("digital_twins", {"id": f"eq.{req.twin_id}", "select": "id,device_id,organization_id,simulation_model,parameters"})
         if len(twins) != 1 or twins[0].get("organization_id") != req.organization_id:
             raise ValueError("Digital twin not found")
-        runs = get("simulation_runs", {"id": f"eq.{req.run_id}", "twin_id": f"eq.{req.twin_id}", "select": "id,twin_id"})
+        runs = get("simulation_runs", {"id": f"eq.{req.run_id}", "twin_id": f"eq.{req.twin_id}", "organization_id": f"eq.{req.organization_id}", "select": "id,twin_id,organization_id"})
         if len(runs) != 1:
             raise ValueError("Simulation run not found")
         twin = twins[0]
@@ -136,7 +142,7 @@ def run(req: SimulationRequest) -> None:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "pulse-digital-twin"}
+    return {"status": "ok", "service": "pulse-digital-twin", "schemaVersion": SIMULATION_SCHEMA_VERSION}
 
 
 @app.post("/simulate")
@@ -150,9 +156,11 @@ def simulate(req: SimulationRequest, _service: str = Depends(require_service)) -
 
     acquired = False
     try:
-        runs = get("simulation_runs", {"id": f"eq.{req.run_id}", "twin_id": f"eq.{req.twin_id}", "select": "id,twin_id"})
+        if req.schema_version != SIMULATION_SCHEMA_VERSION:
+            raise HTTPException(status_code=409, detail="Unsupported simulation schema version")
+        runs = get("simulation_runs", {"id": f"eq.{req.run_id}", "twin_id": f"eq.{req.twin_id}", "organization_id": f"eq.{req.organization_id}", "select": "id,twin_id,organization_id"})
         twins = get("digital_twins", {"id": f"eq.{req.twin_id}", "select": "id,organization_id"})
-        if len(runs) != 1 or len(twins) != 1 or twins[0].get("organization_id") != req.organization_id:
+        if len(runs) != 1 or len(twins) != 1 or twins[0].get("organization_id") != req.organization_id or runs[0].get("organization_id") != req.organization_id:
             raise HTTPException(status_code=409, detail="Simulation request rejected")
         acquired = capacity.acquire(blocking=False)
         if not acquired:
