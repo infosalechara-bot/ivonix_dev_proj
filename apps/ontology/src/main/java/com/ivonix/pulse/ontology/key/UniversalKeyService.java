@@ -44,17 +44,19 @@ public class UniversalKeyService {
         for (String scope : scopes) if (!ALLOWED_SCOPES.contains(scope)) throw new SecurityException("Activation scope is not permitted");
         if (keyId != null) jdbc.queryForObject("select id from public.crypto_keys where id=? and organization_id=? and status='active' and key_type='aes-256' and purpose='encryption'", UUID.class, keyId, orgId);
         String token = randomToken(); UUID deviceId = UUID.randomUUID(); Instant tokenExpires = Instant.now().plus(DEVICE_TOKEN_DAYS, ChronoUnit.DAYS);
-        jdbc.update("insert into public.key_devices(id,organization_id,key_id,activation_code_id,device_name,device_type,public_key,credential_hash,credential_expires_at,scopes) values (?,?,?,?,?,?,?,?,?,?)",
-                deviceId, orgId, keyId, activationId, deviceName.trim(), deviceType == null || deviceType.isBlank() ? "custom" : deviceType.trim(), publicKey, sha256(token), tokenExpires, scopes);
+        String normalizedName = deviceName.trim();
+        String normalizedType = deviceType == null || deviceType.isBlank() ? "custom" : deviceType.trim();
+        jdbc.update("insert into public.key_devices(id,organization_id,key_id,activation_code_id,device_name,device_type,public_key,credential_hash,credential_expires_at,scopes) values (?,?,?,?,?,?,?,?,?,?)", deviceId, orgId, keyId, activationId, normalizedName, normalizedType, publicKey, sha256(token), tokenExpires, scopes);
+        jdbc.update("insert into public.devices(id,organization_id,device_id,name,type,protocol,capabilities,metadata,status,last_seen,token_hash,created_at) values (?,?,?,?,?,?,?::jsonb,?::jsonb,'offline',null,?,now())", deviceId, orgId, deviceId.toString(), normalizedName, normalizedType, "MQTT", "{}", "{}", sha256(token));
         int updated = jdbc.update("update public.key_activation_codes set used_count=used_count+1 where id=? and used_count < max_uses", activationId);
         if (updated != 1) throw new SecurityException("Activation code unavailable");
+        jdbc.update("insert into public.audit_logs(user_id,action,resource_type,resource_id,created_at) values (?,?,?,?,now())", null, "device.register", "device", deviceId.toString());
         return new ActivationResult(deviceId, orgId, keyId, token, tokenExpires, orgType(orgId), List.of(scopes));
     }
 
     public DeviceView authenticateDevice(String token) {
         if (token == null || token.isBlank()) throw new SecurityException("Device credential required");
-        return jdbc.queryForObject("select d.id,d.organization_id,d.key_id,d.device_name,d.device_type,d.scopes,d.status,o.org_type from public.key_devices d join public.organizations o on o.id=d.organization_id where d.credential_hash=? and d.status='active' and d.credential_expires_at>now()",
-                (rs,n)->new DeviceView((UUID)rs.getObject("id"),(UUID)rs.getObject("organization_id"),(UUID)rs.getObject("key_id"),rs.getString("device_name"),rs.getString("device_type"),array(rs.getArray("scopes")),rs.getString("org_type")), sha256(token.trim()));
+        return jdbc.queryForObject("select d.id,d.organization_id,d.key_id,d.device_name,d.device_type,d.scopes,d.status,o.org_type from public.key_devices d join public.organizations o on o.id=d.organization_id where d.credential_hash=? and d.status='active' and d.credential_expires_at>now()", (rs,n)->new DeviceView((UUID)rs.getObject("id"),(UUID)rs.getObject("organization_id"),(UUID)rs.getObject("key_id"),rs.getString("device_name"),rs.getString("device_type"),array(rs.getArray("scopes")),rs.getString("org_type")), sha256(token.trim()));
     }
 
     public ClientCredential createClient(UUID userId, UUID orgId, String name, String clientType, String[] scopes) {
@@ -77,8 +79,8 @@ public class UniversalKeyService {
         return jdbc.queryForObject("select id,organization_id,client_id,device_id,scopes,expires_at from public.key_api_tokens where token_hash=? and revoked_at is null and expires_at>now()", (rs,n)->new TokenView((UUID)rs.getObject("id"),(UUID)rs.getObject("organization_id"),(UUID)rs.getObject("client_id"),(UUID)rs.getObject("device_id"),array(rs.getArray("scopes")),rs.getObject("expires_at",Instant.class)), sha256(token.trim()));
     }
 
-    public void revokeDevice(UUID userId, UUID orgId, UUID deviceId) { requireMember(orgId, userId); jdbc.update("update public.key_devices set status='revoked',revoked_at=now() where id=? and organization_id=?", deviceId, orgId); }
-    public Map<String,Object> capabilities() { return Map.of("accountTypes",List.of("personal","organization","enterprise"),"deviceTypes",List.of("phone","tablet","desktop","server","iot","robot","vehicle","industrial","custom"),"keyTypes",List.of("aes-256"),"keyPurposes",List.of("encryption"),"protocols",List.of("HTTPS"),"activation","one-time or bounded-use activation codes","apiAuth",List.of("client credentials","device credentials"),"deviceCredentialLifetimeDays",DEVICE_TOKEN_DAYS); }
+    public void revokeDevice(UUID userId, UUID orgId, UUID deviceId) { requireMember(orgId, userId); jdbc.update("update public.key_devices set status='revoked',revoked_at=now() where id=? and organization_id=?", deviceId, orgId); jdbc.update("update public.devices set status='offline' where id=? and organization_id=?", deviceId, orgId); }
+    public Map<String,Object> capabilities() { return Map.of("accountTypes",List.of("personal","organization","enterprise"),"deviceTypes",List.of("phone","tablet","desktop","server","iot","robot","vehicle","industrial","custom"),"keyTypes",List.of("aes-256"),"keyPurposes",List.of("encryption"),"protocols",List.of("MQTT","HTTPS"),"activation","one-time or bounded-use activation codes","apiAuth",List.of("client credentials","device credentials"),"deviceCredentialLifetimeDays",DEVICE_TOKEN_DAYS); }
     private String secretHash(String clientId) { return jdbc.queryForObject("select client_secret_hash from public.key_api_clients where client_id=?", String.class, clientId); }
     private void requireMember(UUID org, UUID user) { Integer n = jdbc.queryForObject("select count(*) from public.organization_members where organization_id=? and user_id=?", Integer.class, org, user); if (n == null || n < 1) throw new SecurityException("Organization membership required"); }
     private String orgType(UUID org) { return jdbc.queryForObject("select org_type from public.organizations where id=?", String.class, org); }
