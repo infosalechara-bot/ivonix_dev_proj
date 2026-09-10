@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pulse-ivonix.site/contracts/pulse_event_v1.json",
+  "title": "PULSE Universal Event Envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eventId", "eventType", "eventVersion", "occurredAt", "producer", "aggregateType", "aggregateId", "organizationId", "correlationId", "causationId", "payload", "signature"],
+  "properties": {
+    "eventId": {"type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"},
+    "eventType": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9]+)+$"},
+    "eventVersion": {"type": "integer", "minimum": 1},
+    "occurredAt": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"},
+    "producer": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+    "aggregateType": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z][A-Za-z0-9._-]*$"},
+    "aggregateId": {"type": "string", "minLength": 1, "maxLength": 128},
+    "organizationId": {"type": ["string", "null"], "format": "uuid"},
+    "correlationId": {"type": "string", "minLength": 1, "maxLength": 128},
+    "causationId": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
+    "payload": {},
+    "signature": {"type": "string", "minLength": 16, "maxLength": 4096}
+  }
+}
