@@ -13,7 +13,13 @@ public class SecurityConfig {
       .sessionManagement(s->s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
       .headers(h->h.contentSecurityPolicy(c->c.policyDirectives("default-src 'none'; frame-ancestors 'none'; base-uri 'none'"))
         .httpStrictTransportSecurity(hsts->hsts.includeSubDomains(true).maxAgeInSeconds(31536000)))
-      .authorizeHttpRequests(a->a.requestMatchers("/actuator/health","/api/v1/auth/login","/api/v1/auth/refresh").permitAll().anyRequest().authenticated())
+      // Human APIs require a verified JWT. Device ingress is separately authenticated by
+      // DeviceGatewayService using the device credential bound to key_devices.organization_id.
+      // It must not be forced through the human-JWT filter, otherwise real device credentials
+      // are rejected before the device identity/tenant check can run.
+      .authorizeHttpRequests(a->a
+        .requestMatchers("/actuator/health","/api/v1/auth/login","/api/v1/auth/refresh","/api/v1/device-gateway/**").permitAll()
+        .anyRequest().authenticated())
       .addFilterBefore(rate,UsernamePasswordAuthenticationFilter.class)
       .addFilterAfter(jwt,RateLimitingFilter.class)
       .addFilterAfter(audit,JwtAuthenticationFilter.class).build();
