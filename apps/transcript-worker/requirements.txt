@@ -1,0 +1,6 @@
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+reportlab==4.4.3
+qrcode[pil]==8.2
+requests==2.32.4
+faster-whisper==1.2.0

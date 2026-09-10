@@ -6,10 +6,18 @@ on:
     branches: [main]
     paths:
       - 'apps/ontology/**'
+      - 'apps/ai/**'
+      - 'apps/key-service/**'
+      - 'apps/reclaim-worker/**'
+      - 'docker-compose.yml'
       - '.github/workflows/ontology-ci.yml'
   pull_request:
     paths:
       - 'apps/ontology/**'
+      - 'apps/ai/**'
+      - 'apps/key-service/**'
+      - 'apps/reclaim-worker/**'
+      - 'docker-compose.yml'
       - '.github/workflows/ontology-ci.yml'
 
 permissions:
@@ -32,6 +40,18 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate Python workers
+        run: python -m compileall -q ../ai ../key-service ../reclaim-worker
+
+      - name: Validate Compose configuration
+        working-directory: .
+        run: docker compose config --quiet
 
       - name: Run Maven tests
         run: mvn -B test

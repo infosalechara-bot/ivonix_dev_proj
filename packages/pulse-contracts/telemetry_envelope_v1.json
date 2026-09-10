@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PULSE Telemetry Envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "eventId", "deviceId", "timestamp", "source", "measurements"],
+  "properties": {
+    "schemaVersion": {"type": "string", "const": "1.0"},
+    "eventId": {"type": "string", "format": "uuid"},
+    "organizationId": {"type": "string", "format": "uuid"},
+    "deviceId": {"type": "string", "format": "uuid"},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "source": {"type": "object", "additionalProperties": false, "required": ["type", "id"], "properties": {"type": {"type": "string", "enum": ["DEVICE", "EDGE", "GATEWAY", "SIMULATION"]}, "id": {"type": "string", "minLength": 1, "maxLength": 128}, "protocol": {"type": "string", "maxLength": 64}}},
+    "measurements": {"type": "object", "additionalProperties": true},
+    "state": {"type": "object", "additionalProperties": true},
+    "quality": {"type": "object", "additionalProperties": true},
+    "metadata": {"type": "object", "additionalProperties": true}
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "title":"PULSE Evidence Provenance v1",
+  "type":"object","additionalProperties":false,
+  "required":["schemaVersion","sourceType","sourceRef","contentHash","observedAt","collector"],
+  "properties":{
+    "schemaVersion":{"type":"string","const":"1.0"},
+    "sourceType":{"type":"string","minLength":1,"maxLength":64},
+    "sourceRef":{"type":"string","minLength":1,"maxLength":1024},
+    "contentHash":{"type":"string","pattern":"^[a-fA-F0-9]{64}$"},
+    "observedAt":{"type":"string","format":"date-time"},
+    "collector":{"type":"string","minLength":1,"maxLength":128},
+    "originalRef":{"type":"string","maxLength":1024},
+    "parentHash":{"type":"string","pattern":"^[a-fA-F0-9]{64}$"},
+    "transformations":{"type":"array","items":{"type":"string","maxLength":512}},
+    "chainOfCustody":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["actor","timestamp","action"],"properties":{"actor":{"type":"string","maxLength":128},"timestamp":{"type":"string","format":"date-time"},"action":{"type":"string","maxLength":256}}}}
+  }
+}

@@ -1,0 +1,24 @@
+import React,{useEffect,useState} from 'react';
+
+const API=(import.meta.env.VITE_API_BASE_URL||'http://localhost:8081/api/v1').replace(/\/v1$/,'');
+async function call(path,opts={}){const t=localStorage.getItem('pulse_access_token');const headers={'Content-Type':'application/json'};if(t)headers.Authorization=`Bearer ${t}`;const r=await fetch(API+path,{...opts,headers:{...headers,...(opts.headers||{})}});if(!r.ok)throw new Error(await r.text());return r.status===204?null:r.json();}
+
+export function AcademyPanel({organizationId}){
+ const[courses,setCourses]=useState([]),[err,setErr]=useState('');
+ useEffect(()=>{if(organizationId)call(`/academy/courses?organizationId=${organizationId}`).then(setCourses).catch(e=>setErr(e.message));},[organizationId]);
+ return <section className="panel" aria-labelledby="academy-title"><h2 id="academy-title">PULSE Academy</h2>{err&&<p role="alert">{err}</p>}{courses.map(c=><article key={c.id}><h3>{c.title}</h3><p>{c.summary}</p><button onClick={()=>call(`/academy/courses/${c.id}/enroll?organizationId=${organizationId}`,{method:'POST'}).catch(e=>setErr(e.message))}>Enroll</button></article>)}</section>;
+}
+
+export function MeetPanel({organizationId}){
+ const[name,setName]=useState(''),[room,setRoom]=useState(null),[err,setErr]=useState('');
+ async function create(){try{setRoom(await call('/meet/rooms',{method:'POST',body:JSON.stringify({organizationId,name,options:{maxParticipants:20,recordingEnabled:true,transcriptEnabled:true}})}));}catch(e){setErr(e.message);}}
+ return <section className="panel" aria-labelledby="meet-title"><h2 id="meet-title">PULSE Meet</h2><label>Room name<input value={name} onChange={e=>setName(e.target.value)}/></label><button disabled={!name||!organizationId} onClick={create}>Create room</button>{room&&<p>Room: {room.roomId}</p>}{err&&<p role="alert">{err}</p>}</section>;
+}
+
+export function GlobalPanel(){
+ const[locale,setLocale]=useState('en'),[dir,setDir]=useState('ltr');
+ useEffect(()=>{fetch(`${API}/i18n/${locale}/direction`).then(r=>r.json()).then(x=>{setDir(x.direction);document.documentElement.lang=locale;document.documentElement.dir=x.direction;}).catch(()=>{});},[locale]);
+ return <section className="panel" aria-labelledby="global-title"><h2 id="global-title">PULSE Global</h2><label>Language<select value={locale} onChange={e=>setLocale(e.target.value)}><option value="en">English</option><option value="fr">Français</option><option value="ar">العربية</option><option value="sw">Kiswahili</option><option value="zh">简体中文</option><option value="es">Español</option></select></label><p>Direction: {dir}</p></section>;
+}
+
+export default function Batch5Panel(props){return <><AcademyPanel {...props}/><GlobalPanel/><MeetPanel {...props}/></>;}
