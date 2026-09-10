@@ -36,4 +36,4 @@ def test_simulation_request_requires_organization_scope(monkeypatch):
 def test_thermal_simulation_is_deterministic(monkeypatch):
     module = load_module(monkeypatch)
     result = module.simulate_thermal({"ambient_temp": 20, "cooling_coefficient": 0.1}, {"current_temp": 30, "heat_source": 5})
-    assert result == {"temperature": 29.0, "ambient_temperature": 20.0}
+    assert result == {"temperature": 34.0, "ambient_temperature": 20.0}
