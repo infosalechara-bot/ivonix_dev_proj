@@ -1,7 +1,8 @@
 import hmac
 import os
+import threading
 import time
-from datetime import datetime, timezone
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -12,21 +13,27 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
-app = FastAPI(title="PULSE CORE Runtime", version="0.2.0")
+app = FastAPI(title="PULSE CORE Runtime", version="0.3.0")
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 CORE_SERVICE_SECRET = os.environ.get("PULSE_CORE_SERVICE_SECRET", "")
 MODEL_ROOT = Path(os.environ.get("CORE_MODEL_ROOT", "/models")).resolve()
+LEASE_SECONDS = max(5, min(3600, int(os.environ.get("PULSE_INFERENCE_LEASE_SECONDS", "60"))))
+HEARTBEAT_SECONDS = max(2, min(LEASE_SECONDS // 2, int(os.environ.get("PULSE_INFERENCE_HEARTBEAT_SECONDS", "20"))))
 bearer = HTTPBearer(auto_error=False)
 
 if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY or not CORE_SERVICE_SECRET:
     raise RuntimeError("CORE runtime requires Supabase credentials and PULSE_CORE_SERVICE_SECRET")
+
 
 class InferenceRequest(BaseModel):
     organization_id: str
     job_id: str
     model_id: str
     input_data: dict[str, Any]
+
+
+LEASE_OWNER = f"{os.environ.get('HOSTNAME', 'core-runtime')}:{uuid.uuid4()}"
 
 
 def require_service(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> str:
@@ -43,43 +50,48 @@ def supabase_request(method: str, path: str, **kwargs):
     return response
 
 
-def fetch_job(job_id: str, organization_id: str):
-    response = supabase_request("GET", "inference_jobs", params={
-        "id": f"eq.{job_id}", "organization_id": f"eq.{organization_id}",
-        "select": "id,organization_id,model_id"
-    })
+def claim_job(job_id: str, organization_id: str):
+    response = supabase_request(
+        "POST", "rpc/claim_inference_job",
+        json={"p_job_id": job_id, "p_org_id": organization_id, "p_lease_owner": LEASE_OWNER, "p_lease_seconds": LEASE_SECONDS},
+    )
     rows = response.json()
-    if len(rows) != 1:
-        raise RuntimeError("Inference job not found")
-    return rows[0]
+    return rows[0] if rows else None
 
 
-def fetch_model(model_id: str, organization_id: str):
-    response = supabase_request("GET", "core_models", params={
-        "id": f"eq.{model_id}", "organization_id": f"eq.{organization_id}",
-        "select": "id,organization_id,model_path,input_shape,output_shape,framework"
-    })
-    rows = response.json()
-    if len(rows) != 1:
-        raise RuntimeError("Model not found")
-    return rows[0]
+def renew_lease(job_id: str, organization_id: str) -> bool:
+    response = supabase_request(
+        "POST", "rpc/renew_inference_lease",
+        json={"p_job_id": job_id, "p_org_id": organization_id, "p_lease_owner": LEASE_OWNER, "p_lease_seconds": LEASE_SECONDS},
+    )
+    return bool(response.json())
 
 
-def update_job(organization_id: str, job_id: str, status: str, output=None, latency_ms=None, started=False, completed=False):
-    payload: dict[str, Any] = {"status": status}
-    if started:
-        payload["started_at"] = datetime.now(timezone.utc).isoformat()
-    if completed:
-        payload["completed_at"] = datetime.now(timezone.utc).isoformat()
-    if output is not None:
-        payload["output_data"] = output
-    if latency_ms is not None:
-        payload["latency_ms"] = latency_ms
-    response = supabase_request("PATCH", "inference_jobs", params={
-        "id": f"eq.{job_id}", "organization_id": f"eq.{organization_id}"
-    }, json=payload)
-    if response.status_code not in (200, 204):
-        raise RuntimeError("Unable to update inference job")
+def complete_job(job_id: str, organization_id: str, result: dict[str, Any], latency_ms: float) -> bool:
+    response = supabase_request(
+        "POST", "rpc/complete_inference_job",
+        json={"p_job_id": job_id, "p_org_id": organization_id, "p_lease_owner": LEASE_OWNER, "p_result": result, "p_latency_ms": latency_ms},
+    )
+    return bool(response.json())
+
+
+def fail_job(job_id: str, organization_id: str, reason: str, latency_ms: float) -> bool:
+    response = supabase_request(
+        "POST", "rpc/fail_inference_job",
+        json={"p_job_id": job_id, "p_org_id": organization_id, "p_lease_owner": LEASE_OWNER, "p_reason": reason[:500], "p_latency_ms": latency_ms},
+    )
+    return bool(response.json())
+
+
+def heartbeat(job_id: str, organization_id: str, stop: threading.Event, lost: threading.Event) -> None:
+    while not stop.wait(HEARTBEAT_SECONDS):
+        try:
+            if not renew_lease(job_id, organization_id):
+                lost.set()
+                return
+        except Exception:
+            lost.set()
+            return
 
 
 def resolve_model_path(model_path: str) -> Path:
@@ -95,15 +107,33 @@ def resolve_model_path(model_path: str) -> Path:
 
 
 def run_inference(req: InferenceRequest):
-    job = fetch_job(req.job_id, req.organization_id)
-    if job["model_id"] != req.model_id:
-        raise RuntimeError("Inference job and model do not match")
-    model = fetch_model(req.model_id, req.organization_id)
+    claim = claim_job(req.job_id, req.organization_id)
+    if claim is None:
+        raise RuntimeError("Inference job is not claimable")
+
+    model_id = str(claim["model_id"])
+    if model_id != req.model_id:
+        try:
+            fail_job(req.job_id, req.organization_id, "job_model_mismatch", 0)
+        finally:
+            raise RuntimeError("Inference job and model do not match")
+
+    model = fetch_model(model_id, req.organization_id)
     if model["organization_id"] != req.organization_id:
+        fail_job(req.job_id, req.organization_id, "organization_scope_mismatch", 0)
         raise RuntimeError("Organization scope mismatch")
 
+    stop = threading.Event()
+    lease_lost = threading.Event()
+    heartbeat_thread = threading.Thread(
+        target=heartbeat,
+        args=(req.job_id, req.organization_id, stop, lease_lost),
+        name=f"inference-heartbeat-{req.job_id}",
+        daemon=True,
+    )
+    heartbeat_thread.start()
+
     started = time.perf_counter()
-    update_job(req.organization_id, req.job_id, "running", started=True)
     try:
         if model["framework"] != "onnx":
             raise RuntimeError("This runtime currently supports ONNX models")
@@ -117,7 +147,8 @@ def run_inference(req: InferenceRequest):
             provider_order = ["CPUExecutionProvider"]
         session = ort.InferenceSession(str(model_path), options, providers=provider_order)
         input_name = session.get_inputs()[0].name
-        data = req.input_data.get("data")
+
+        data = (claim.get("payload") or {}).get("data")
         if data is None:
             raise RuntimeError("input_data.data is required")
         array = np.asarray(data, dtype=np.float32)
@@ -125,12 +156,32 @@ def run_inference(req: InferenceRequest):
             array = array.reshape(tuple(model["input_shape"]))
         outputs = session.run(None, {input_name: array})
         latency_ms = (time.perf_counter() - started) * 1000.0
-        update_job(req.organization_id, req.job_id, "completed", output={"output": outputs[0].tolist()}, latency_ms=latency_ms, completed=True)
+
+        if lease_lost.is_set():
+            raise RuntimeError("inference lease lost before completion")
+        if not complete_job(req.job_id, req.organization_id, {"output": outputs[0].tolist()}, latency_ms):
+            raise RuntimeError("inference completion rejected because the lease is no longer owned")
     except Exception as exc:
+        latency_ms = (time.perf_counter() - started) * 1000.0
         try:
-            update_job(req.organization_id, req.job_id, "failed", output={"error": "inference_failed"}, latency_ms=(time.perf_counter() - started) * 1000.0, completed=True)
-        finally:
-            raise exc
+            fail_job(req.job_id, req.organization_id, str(exc), latency_ms)
+        except Exception:
+            pass
+        raise
+    finally:
+        stop.set()
+        heartbeat_thread.join(timeout=max(1, HEARTBEAT_SECONDS))
+
+
+def fetch_model(model_id: str, organization_id: str):
+    response = supabase_request("GET", "core_models", params={
+        "id": f"eq.{model_id}", "organization_id": f"eq.{organization_id}",
+        "select": "id,organization_id,model_path,input_shape,output_shape,framework"
+    })
+    rows = response.json()
+    if len(rows) != 1:
+        raise RuntimeError("Model not found")
+    return rows[0]
 
 
 @app.get("/health")
