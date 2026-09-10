@@ -13,7 +13,6 @@ def load_module(monkeypatch):
 def test_service_auth_rejects_missing_credentials(monkeypatch):
     module = load_module(monkeypatch)
     from fastapi import HTTPException
-
     try:
         module.require_service(None)
         assert False, "missing credentials must fail"
@@ -24,15 +23,29 @@ def test_service_auth_rejects_missing_credentials(monkeypatch):
 def test_service_auth_accepts_exact_bearer(monkeypatch):
     module = load_module(monkeypatch)
     from fastapi.security import HTTPAuthorizationCredentials
-
     credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="twin-secret")
     assert module.require_service(credentials) == "pulse-digital-twin"
 
 
-def test_simulation_request_requires_organization_scope(monkeypatch):
+def test_simulation_request_requires_canonical_context(monkeypatch):
     module = load_module(monkeypatch)
-    request = module.SimulationRequest(organization_id="org-a", twin_id="twin-a", run_id="run-a")
+    request = module.SimulationRequest(
+        schemaVersion="1.0", organizationId="org-a", twinId="twin-a", runId="run-a",
+        inputData={}, correlationId="corr-a"
+    )
     assert request.organization_id == "org-a"
+    assert request.schema_version == "1.0"
+    assert request.correlation_id == "corr-a"
+
+
+def test_simulation_request_rejects_unknown_fields(monkeypatch):
+    module = load_module(monkeypatch)
+    import pytest
+    with pytest.raises(Exception):
+        module.SimulationRequest(
+            schemaVersion="1.0", organizationId="org-a", twinId="twin-a", runId="run-a",
+            inputData={}, correlationId="corr-a", unexpected="value"
+        )
 
 
 def test_simulation_capacity_is_bounded(monkeypatch):
