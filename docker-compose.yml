@@ -1,4 +1,14 @@
 services:
+  emqx:
+    image: emqx:5.8.6
+    ports: ["1883:1883", "18083:18083"]
+    environment:
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD_PASSWORD:-change-me-local}
+    volumes:
+      - ./infra/emqx/base.hocon:/opt/emqx/etc/base.hocon:ro
+      - ./infra/emqx/acl.conf:/opt/emqx/etc/acl.conf:ro
+      - emqx-data:/opt/emqx/data
+    restart: unless-stopped
   backend:
     build: ./apps/ontology
     ports: ["8081:8081"]
@@ -37,8 +47,13 @@ services:
       PULSE_CORE_URL: ${PULSE_CORE_URL:-http://core-runtime:8091}
       PULSE_TWIN_URL: ${PULSE_TWIN_URL:-http://digital-twin:8091}
       PULSE_AI_TRAINING_URL: ${PULSE_AI_TRAINING_URL:-http://ai-training:8000}
+      PULSE_MQTT_URL: ${PULSE_MQTT_URL:-tcp://emqx:1883}
+      PULSE_MQTT_USERNAME: ${PULSE_MQTT_USERNAME:-pulse-core}
+      PULSE_MQTT_PASSWORD: ${PULSE_MQTT_PASSWORD}
+      PULSE_MQTT_WEBHOOK_SECRET: ${PULSE_MQTT_WEBHOOK_SECRET}
+      PULSE_MQTT_CLIENT_ID: ${PULSE_MQTT_CLIENT_ID:-pulse-core-publisher}
       VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
-    depends_on: [embedding, ai, key-service, core-runtime, digital-twin, ai-training, cert-renderer, reclaim-worker, founder-agent, veritas, nl-to-sql]
+    depends_on: [emqx, embedding, ai, key-service, core-runtime, digital-twin, ai-training, cert-renderer, reclaim-worker, founder-agent, veritas, nl-to-sql]
     restart: unless-stopped
   frontend:
     build: ./apps/web
@@ -151,3 +166,6 @@ services:
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
       PULSE_NL_TO_SQL_SERVICE_SECRET: ${PULSE_NL_TO_SQL_SERVICE_SECRET}
     restart: unless-stopped
+
+volumes:
+  emqx-data:
