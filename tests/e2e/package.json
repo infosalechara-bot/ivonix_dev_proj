@@ -1,1 +1,1 @@
-{"private":true,"type":"module","scripts":{"golden-path-1":"tsx golden_path_1.spec.ts"},"dependencies":{"mqtt":"^5.14.0","tsx":"^4.20.3"}}
+{"private":true,"type":"module","scripts":{"golden-path-1":"tsx golden_path_1.spec.ts"},"dependencies":{"mqtt":"^5.14.0","tsx":"^4.20.3"},"devDependencies":{"typescript":"^5.9.2","@types/node":"^24.3.0"}}
