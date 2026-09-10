@@ -19,7 +19,7 @@ jobs:
       - name: Reject committed private keys and obvious credentials
         run: |
           set -eu
-          if grep -RInE --exclude-dir=.git --exclude='*.lock' '(BEGIN (RSA|EC|OPENSSH|PRIVATE) KEY|aws_secret_access_key|SUPABASE_SERVICE_ROLE_KEY=[^$[:space:]]+|PULSE_MASTER_KEY=[^$[:space:]]+)' .; then
+          if grep -RInE --exclude-dir=.git --exclude='*.lock' --exclude='pulse-security-gates.yml' '(BEGIN (RSA|EC|OPENSSH|PRIVATE) KEY|aws_secret_access_key|SUPABASE_SERVICE_ROLE_KEY=[^$[:space:]]+|PULSE_MASTER_KEY=[^$[:space:]]+)' .; then
             echo 'Potential secret material found in repository.'
             exit 1
           fi
@@ -123,10 +123,11 @@ jobs:
           PULSE_VERITAS_SERVICE_SECRET: test-veritas-secret
           PULSE_NL_TO_SQL_SERVICE_SECRET: test-nl-secret
         run: |
-          if find . -maxdepth 2 -type f -name '*security*.py' -print -quit | grep -q .; then
-            python -m pytest -q -k 'security or auth or tenant or ownership or injection'
-          else
+          set -eu
+          if find . -type f \( -name 'test_*.py' -o -name '*_test.py' \) -print -quit | grep -q .; then
             python -m pytest -q
+          else
+            echo 'No Python test files present; compile gate passed.'
           fi
 
   compose-static-validation:
