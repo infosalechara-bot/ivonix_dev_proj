@@ -1,1 +1,0 @@
-Gate 2 service boundary implementation is tracked on the gate2 branch.
