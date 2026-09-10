@@ -8,6 +8,7 @@ on:
       - 'apps/ai-training/**'
       - 'apps/cert-renderer/**'
       - 'apps/transcript-worker/**'
+      - 'apps/reclaim-worker/**'
       - 'packages/pulse-contracts/**'
       - 'docker-compose.yml'
       - '.github/workflows/pulse-python-services-ci.yml'
@@ -28,6 +29,8 @@ jobs:
             path: apps/embedding
           - name: ai-training
             path: apps/ai-training
+          - name: reclaim-worker
+            path: apps/reclaim-worker
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
