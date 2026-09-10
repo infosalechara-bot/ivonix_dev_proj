@@ -14,8 +14,8 @@ The audit covers repository code, frontend, Java backend, Python services/worker
 
 - Live Supabase project is `ACTIVE_HEALTHY` on PostgreSQL 17.6 in `ap-southeast-2`.
 - Live database currently has 84 public tables, all 84 with RLS enabled, 124 public policies, 0 storage buckets and 0 storage policies.
+- The live migration history now includes database-side hardening versions through `20260910105537`, while the repository migration directory does not contain a matching complete historical chain. This confirms migration-history/schema reproducibility remains a P0 deployment task.
 - The repository contains staged migrations for additional Academy/Global/Meet and Privacy/Trust/FinOps/Runbook schemas that are not yet present in the inspected production database. These migrations remain unapplied until controlled deployment authorization.
-- The repository does not yet constitute a complete clean-room reconstruction of the full historical database migration chain; migration baseline/drift reconciliation remains a P0 deployment task.
 - Vercel is configured to build `apps/web` with Vite; fresh deployment/runtime verification is still pending.
 - Docker Compose includes the known containerizable backend, worker and internal service set including Founder Agent, RECLAIM, VERITAS and NL-to-SQL.
 
@@ -37,10 +37,10 @@ The audit covers repository code, frontend, Java backend, Python services/worker
 | Accessibility | AUTOMATED | WCAG AA audit is part of Web CI; production browser verification remains. |
 | API build/test coverage | VERIFIED-PARTIAL | Existing API security tests cover authentication boundaries; the authenticated read route is now covered by regression tests. New cross-service gates require CI execution. |
 | Security / OWASP API | NOT CERTIFIED | Full BOLA/IDOR, auth, property authorization, SSRF, resource exhaustion, misconfiguration and inventory tests remain. |
-| Internal service authentication | IN PROGRESS | NL-to-SQL and VERITAS use dedicated service secrets; RECLAIM uses a dedicated worker secret; KEY now binds caller and tenant. Uniform workload identity remains. |
+| Internal service authentication | IN PROGRESS | NL-to-SQL and VERITAS use dedicated service secrets; RECLAIM uses a dedicated worker secret; KEY binds caller and tenant through its current service boundary. Uniform cryptographic workload identity remains. |
 | RECLAIM job boundary | IMPLEMENTED, VERIFY | Worker rejects target/type/device mismatches and completed-job replay; focused security tests exist. Atomic multi-worker claim still requires real DB concurrency evidence. |
-| Event Bus delivery boundary | NOT CERTIFIED | Atomic claim/lease, duplicate suppression and concurrent-worker behavior require implementation and integration evidence against the actual persistence layer. |
-| Founder gate | NOT CERTIFIED | FND-026 TTL, single-use, signed receipt and complete critical-action routing require executable evidence. |
+| Event Bus delivery boundary | IMPLEMENTED, VERIFY | Added atomic DB claim/lease with `FOR UPDATE SKIP LOCKED`, worker-bound terminal updates, bounded event/webhook payloads and redirect-disabled SSRF defenses. Real migration execution, two-worker race, lease-expiry recovery and duplicate-side-effect evidence remain mandatory. |
+| Founder gate | NOT CERTIFIED | FND-026 TTL, action/resource binding, single-use, signed receipt and complete critical-action routing require executable evidence. |
 | Integration / E2E | NOT CERTIFIED | Complete machine registration → credential auth → telemetry → Event Bus → ontology/intelligence → command → acknowledgement → audit/ledger flow remains. |
 | Failure / chaos | NOT CERTIFIED | Service, database, Event Bus, network, worker, storage and recovery failure scenarios remain. |
 | Load | IMPLEMENTED, VERIFY | Executable k6 profiles exist for the 10k msg/s sustained machine workload and 500-VU authenticated API read workload. Actual target execution/evidence remains mandatory. |
@@ -48,8 +48,8 @@ The audit covers repository code, frontend, Java backend, Python services/worker
 | Deployment | IN PROGRESS | Compose coverage is reconciled and Vercel build path corrected; clean deployment, canary and rollback evidence remain. |
 | Runtime verification | NOT CERTIFIED | Requires deployed smoke tests and production-like runtime evidence. |
 | Database performance | IN PROGRESS | RLS/index/performance cleanup must be verified against load targets. |
-| Storage | STAGED, NOT PROVISIONED | Private tenant-isolated `pulse-assets` bucket/policies remain staged; transcript worker is now aligned to that bucket and tenant-prefix contract, but live storage remains unchanged at 0 buckets/0 policies. |
-| Migration reproducibility | NOT CERTIFIED | Canonical baseline and schema-drift reconciliation remain mandatory before production migration. A read-only schema/RLS verification script is present at `scripts/verify-schema.sql`. |
+| Storage | STAGED, NOT PROVISIONED | Private tenant-isolated `pulse-assets` bucket/policies remain staged; transcript worker is aligned to that bucket and tenant-prefix contract, but live storage remains unchanged at 0 buckets/0 policies. |
+| Migration reproducibility | NOT CERTIFIED | Live migration history and repository chain remain divergent; canonical baseline and schema-drift reconciliation are mandatory before production migration. Read-only schema/RLS verification is present at `scripts/verify-schema.sql`. |
 | Security regression CI | IMPLEMENTED, VERIFY | Cross-service Python security tests, secret-pattern scanning and Compose secret coverage are defined in `pulse-security-gates.yml`. |
 | Machine-flow certification harness | IMPLEMENTED, VERIFY | `tests/integration/machine-flow-gates.md` defines the complete registration → telemetry → Event Bus → intelligence → command → audit → recovery → Founder → runtime chain and certification thresholds. |
 
@@ -64,6 +64,8 @@ KEY crypto operations now require an allowlisted caller identity and an explicit
 The authenticated API read workload now targets a real `GET /api/v1/security/health` route instead of a previously nonexistent endpoint. The endpoint is explicitly bearer-authenticated and covered by controller regression tests.
 
 Transcript processing now uses the canonical private `pulse-assets` bucket by default, rejects traversal and tenant-prefix mismatches, and enforces the staged 50 MB storage limit. Atomic worker claiming remains lease-based and worker-bound.
+
+Event Bus delivery now has a staged atomic ownership lease: `claim_event_delivery` uses PostgreSQL row locking with `SKIP LOCKED`, leases are bounded, terminal updates require the current worker and an unexpired lease, and event/webhook payloads are bounded before persistence/delivery. Webhook redirects remain disabled and resolved destinations are checked against non-public address classes. This is an implementation correction; it is not yet an integration certification.
 
 Compose includes Founder Agent, RECLAIM, VERITAS and NL-to-SQL. The security workflow adds cross-service compilation/tests, repository secret-pattern checks, dangerous-code-pattern checks and Compose secret consistency checks.
 
