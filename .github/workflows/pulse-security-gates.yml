@@ -31,6 +31,62 @@ jobs:
             exit 1
           fi
 
+  java-security-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/ontology
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Compile and execute Java security regression suite
+        env:
+          PULSE_FOUNDER_RECEIPT_SECRET: 0123456789abcdef0123456789abcdef
+        run: mvn -q test
+
+  migration-static-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate migration filenames and SQL safety markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          files = sorted(Path('supabase/migrations').glob('*.sql'))
+          assert files, 'No Supabase migrations found'
+          versions = []
+          for path in files:
+              match = re.match(r'^(\d{14})_', path.name)
+              assert match, f'Invalid migration filename: {path.name}'
+              versions.append((match.group(1), path.name))
+          ordered = [v for v, _ in versions]
+          assert ordered == sorted(set(ordered)), 'Migration versions must be unique and sortable'
+
+          for _, name in versions:
+              assert not name.startswith(('00000000000000_', '99999999999999_')), f'Invalid sentinel migration: {name}'
+          print(f'Validated {len(files)} migration files with unique 14-digit versions.')
+          PY
+      - name: Reject destructive migration primitives without explicit review marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' file; do
+            if grep -Eiq '(^|[^-])\bDROP[[:space:]]+(TABLE|SCHEMA|DATABASE)\b|\bTRUNCATE[[:space:]]+' "$file"; then
+              grep -Eiq 'PULSE-REVIEWED-DESTRUCTIVE|REQUIRES-FOUNDER-APPROVAL' "$file" || {
+                echo "Destructive SQL requires an explicit review marker: $file"
+                exit 1
+              }
+            fi
+          done < <(find supabase/migrations -type f -name '*.sql' -print0)
+
   python-security-tests:
     runs-on: ubuntu-latest
     strategy:
@@ -82,7 +138,7 @@ jobs:
       - name: Ensure internal service secrets are declared
         run: |
           set -eu
-          for key in PULSE_RECLAIM_WORKER_SECRET PULSE_VERITAS_SERVICE_SECRET PULSE_NL_TO_SQL_SERVICE_SECRET PULSE_FOUNDER_AGENT_SECRET; do
+          for key in PULSE_RECLAIM_WORKER_SECRET PULSE_VERITAS_SERVICE_SECRET PULSE_NL_TO_SQL_SERVICE_SECRET PULSE_FOUNDER_AGENT_SECRET PULSE_FOUNDER_RECEIPT_SECRET; do
             grep -q "${key}" .env.example
             grep -q "${key}" docker-compose.yml
           done
