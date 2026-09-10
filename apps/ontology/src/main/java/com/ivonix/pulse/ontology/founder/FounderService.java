@@ -43,16 +43,18 @@ public class FounderService {
   }
 
   @Transactional
-  public ConfirmationRequest requestConfirmation(UUID userId, UUID orgId, String action) {
+  public ConfirmationRequest requestConfirmation(UUID userId, UUID orgId, String action, String resourceType, String resourceId) {
     requireFounder(userId,orgId);
-    String description=Objects.requireNonNull(action,"action").trim();
-    if(description.isBlank() || description.length()>2000) throw new IllegalArgumentException("Invalid action description");
+    String description=normalize(action,2000);
+    String type=normalize(resourceType,100);
+    String resource=normalize(resourceId,200);
+    String contextHash=contextHash(orgId,description,type,resource);
     String token=randomToken();
     UUID id=UUID.randomUUID();
-    jdbc.update("insert into public.executive_confirmations(id,organization_id,requested_action,requested_by,confirmation_token_hash) values (?,?,?,?,?)",
-        id,orgId,description,userId,hash(token));
+    jdbc.update("insert into public.executive_confirmations(id,organization_id,requested_action,requested_by,confirmation_token_hash,approved_action_hash) values (?,?,?,?,?,?)",
+        id,orgId,description,userId,hash(token),contextHash);
     jdbc.update("insert into public.founder_messages(organization_id,sender,message_text,message_type,urgency) values (?,?,?,?,?)",
-        orgId,"pulse_agent","Confirmation required: "+description,"signal","critical");
+        orgId,"pulse_agent","Confirmation required: "+description+" ["+type+":"+resource+"]","signal","critical");
     return jdbc.queryForObject("select id,requested_action,status,requested_at,expires_at from public.executive_confirmations where id=?",
         (rs,n)->new ConfirmationRequest((UUID)rs.getObject("id"),rs.getString("requested_action"),rs.getString("status"),rs.getObject("requested_at",Instant.class),rs.getObject("expires_at",Instant.class),token),id);
   }
@@ -80,6 +82,8 @@ public class FounderService {
     return jdbc.update("update public.executive_confirmations set status='expired' where organization_id=? and requested_by=? and status='pending' and expires_at<=now()",orgId,userId);
   }
 
+  private String contextHash(UUID org,String action,String type,String resource){return hash(org+"|"+action+"|"+type+"|"+resource);}
+  private String normalize(String v,int max){String x=Objects.requireNonNull(v,"context").trim();if(x.isBlank()||x.length()>max)throw new IllegalArgumentException("Invalid founder approval context");return x;}
   private void requireFounder(UUID userId, UUID orgId) {
     Integer n=jdbc.queryForObject("select count(*) from public.executive_profiles where user_id=? and organization_id=?",Integer.class,userId,orgId);
     if(n==null || n!=1) throw new SecurityException("Founder authorization required");
