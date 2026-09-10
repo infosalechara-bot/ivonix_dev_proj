@@ -6,7 +6,7 @@ This is a living gate record. A capability is **implemented** only when code exi
 
 - Branch: `pulse-production-bulk-hardening`
 - PR: #6
-- Current head: `fe11b2bca673200a7d83415e94fe9ea12385159f`
+- Current head: `f7784bd78ee85447256898762cc7989bbafb748a`
 - Production migrations: not applied by this hardening pass.
 
 ## Gates
@@ -14,10 +14,10 @@ This is a living gate record. A capability is **implemented** only when code exi
 | Gate | Status | Evidence / remaining work |
 |---|---|---|
 | Original P0/P1 audit closure | IN PROGRESS | Foundation changes exist, but every original finding still needs explicit regression evidence. |
-| Device/event contracts | IN PROGRESS | Versioned contracts and Event Bus tests exist; full cross-service contract execution remains. |
-| Authentication | VERIFIED-PARTIAL | Security API endpoints reject missing/invalid bearer tokens; CI typecheck and regression tests pass. Full endpoint/worker negative-test sweep remains. |
-| Authorization | VERIFIED-PARTIAL | Security API verifies organization membership and device ownership before tenant-scoped writes/anomaly processing. Full resource/action matrix remains. |
-| Tenant isolation | VERIFIED-PARTIAL | Security API queries are organization-scoped; full cross-tenant negative integration suite remains. |
+| Device/event contracts | IN PROGRESS | Versioned contracts and Event Bus tests exist. Device ingress now has an explicit security boundary: human JWT authentication is not applied to `/api/v1/device-gateway/**`; the gateway itself requires a bearer device credential and binds identity/tenant from `key_devices`. Full cross-service contract execution remains. |
+| Authentication | VERIFIED-PARTIAL | Security API endpoints reject missing/invalid bearer tokens; CI typecheck and regression tests pass. Full endpoint/worker negative-test sweep remains. Device ingress uses separate device-credential authentication in `DeviceGatewayService`. |
+| Authorization | VERIFIED-PARTIAL | Security API verifies organization membership and device ownership before tenant-scoped writes/anomaly processing. Ontology services perform resource/org checks in multiple critical paths; full resource/action matrix remains. |
+| Tenant isolation | VERIFIED-PARTIAL | Security API queries are organization-scoped; device ingestion derives organization from the authenticated device record and never accepts caller-selected tenant identity. Full cross-tenant negative integration suite remains. |
 | Privacy / DSAR | IMPLEMENTED, VERIFY | PRV-056 implementation and migration staged; end-to-end DSAR/erasure/legal-hold verification remains. |
 | Trust / anti-fraud | IMPLEMENTED, VERIFY | TRU-057 implementation exists; production signal/rule and false-positive testing remains. |
 | FinOps | IMPLEMENTED, VERIFY | FIN-058 implementation exists; billing integration and anomaly validation remain. |
@@ -25,12 +25,18 @@ This is a living gate record. A capability is **implemented** only when code exi
 | Accessibility | AUTOMATED | WCAG AA audit script is part of Web CI; current run must pass before certification. |
 | API build/test coverage | VERIFIED | API CI run `34436056243` completed successfully: TypeScript typecheck and security-boundary tests passed. |
 | Security / OWASP API | NOT CERTIFIED | Requires full executable API security/negative tests and review beyond the current auth boundary. |
-| Integration / E2E | NOT CERTIFIED | Complete machine ingestion → intelligence → command → acknowledgement flow remains. |
+| Integration / E2E | NOT CERTIFIED | Complete machine registration → credential auth → telemetry → Event Bus → ontology/intelligence → command → acknowledgement → audit/ledger flow remains. |
 | Failure / chaos | NOT CERTIFIED | Service, database, Event Bus, network and recovery failure scenarios remain. |
 | Load | NOT CERTIFIED | Required targets: 10k msg/s for 5 min, p95 <250 ms, p99 <800 ms; 500 concurrent API reads p95 <300 ms; errors <1%. |
 | Backup / restore | NOT CERTIFIED | RTO ≤1h and RPO ≤5m must be demonstrated. |
 | Deployment | BLOCKED/PENDING | Vercel has reported the account deployment-rate limit; deployment evidence must be obtained after the limit clears or an approved deployment path is used. |
 | Runtime verification | NOT CERTIFIED | Requires deployed smoke tests and production-like runtime evidence. |
+
+## Recent hardening change
+
+The Spring Security boundary previously required a human JWT for every non-public endpoint. That conflicted with the device-fabric design because `/api/v1/device-gateway/messages` is authenticated by a device credential stored against `key_devices`, not by a human session. The security chain now explicitly permits only the device-gateway path through the human-authentication layer; `DeviceGatewayController` still requires a bearer credential, and `DeviceGatewayService` verifies the credential, device identity, tenant binding, credential expiry/status, sequence monotonicity, and event idempotency before accepting telemetry.
+
+This is an implementation correction, not a production-certification claim. CI evidence for the new commit is still pending.
 
 ## Database advisory
 
