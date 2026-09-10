@@ -1,0 +1,37 @@
+listeners.tcp.default {
+  bind = "0.0.0.0:1883"
+  max_connections = 100000
+}
+
+authentication = [
+  {
+    mechanism = password_based
+    backend = http
+    method = post
+    url = "http://backend:8081/api/v1/mqtt/auth"
+    body {
+      username = "${username}"
+      password = "${password}"
+    }
+    headers {
+      "Content-Type" = "application/json"
+      "X-Request-Source" = "EMQX"
+    }
+    connect_timeout = "5s"
+    request_timeout = "5s"
+    pool_size = 8
+    enable = true
+  }
+]
+
+authorization {
+  no_match = deny
+  deny_action = disconnect
+  sources = [
+    {
+      type = file
+      enable = true
+      path = "${EMQX_ETC_DIR}/acl.conf"
+    }
+  ]
+}
