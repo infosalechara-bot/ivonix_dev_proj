@@ -117,11 +117,12 @@ public class EventBusService {
         try {
             if (endpoint != null) {
                 // Validate at subscription time and again immediately before network I/O.
-                // This closes the common DNS-rebinding window; a future hardened HTTP client
-                // should additionally pin the validated destination at connection time.
+                // This reduces DNS-rebinding TOCTOU exposure; a connection-pinning resolver is
+                // still a required production hardening step before hostile webhook endpoints are trusted.
                 validateEndpoint(endpoint);
                 Map<String,Object> envelope = new LinkedHashMap<>();
                 envelope.put("id", eventId);
+                envelope.put("operationId", operationId);
                 envelope.put("sourceService", r.get("source_service"));
                 envelope.put("eventTime", r.get("event_time"));
                 envelope.put("payload", r.get("payload"));
@@ -193,7 +194,7 @@ public class EventBusService {
         }
         byte[] b = address.getAddress();
         if (b.length == 16 && isIpv4Mapped(b)) {
-            int a=b[12]&255, c=b[13]&255, d=b[14]&255;
+            int a=b[12]&255, c=b[13]&255;
             if (a == 127 || a == 10 || a == 0 || (a == 169 && c == 254) || (a == 172 && c >= 16 && c <= 31) || (a == 192 && c == 168)) {
                 throw new IllegalArgumentException("Webhook destination is not publicly routable");
             }
