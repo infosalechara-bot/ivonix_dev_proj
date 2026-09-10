@@ -27,7 +27,7 @@ The audit covers repository code, frontend, Java backend, Python services/worker
 | Device/event contracts | IN PROGRESS | Versioned contracts, device-gateway tests and Event Bus tests exist. Full cross-service execution remains. |
 | Authentication | VERIFIED-PARTIAL | Security API, device ingress, VERITAS and NL-to-SQL have explicit authentication boundaries. Full endpoint/worker negative sweep remains. |
 | Authorization | VERIFIED-PARTIAL | Organization membership and resource ownership checks exist in major paths; full resource/action matrix remains. |
-| Tenant isolation | VERIFIED-PARTIAL | Human JWT organization claims are checked against membership; device and recovery ownership are bound to tenant records. Full cross-tenant integration suite remains. |
+| Tenant isolation | VERIFIED-PARTIAL | Human JWT organization claims are checked against membership; device, recovery and KEY resource boundaries have explicit tenant binding. Full cross-tenant integration suite remains. |
 | Privacy / DSAR | IMPLEMENTED, VERIFY | PRV-056 code and migration staged; live schema deployment and end-to-end erasure/legal-hold verification remain. |
 | Trust / anti-fraud | IMPLEMENTED, VERIFY | TRU-057 code and migration staged; live schema and production signal/rule validation remain. |
 | FinOps | IMPLEMENTED, VERIFY | FIN-058 code and migration staged; billing integration and anomaly validation remain. |
@@ -35,21 +35,21 @@ The audit covers repository code, frontend, Java backend, Python services/worker
 | Frontend source | IMPLEMENTED, VERIFY | `apps/web` contains the React/Vite console; authentication/session lifecycle and production runtime verification remain. |
 | Frontend deployment | FIXED-PENDING-VERIFY | Vercel configuration explicitly builds `apps/web`; a fresh deployment must prove the dashboard artifact is served. |
 | Accessibility | AUTOMATED | WCAG AA audit is part of Web CI; production browser verification remains. |
-| API build/test coverage | VERIFIED | API CI previously passed TypeScript typecheck and security-boundary tests. New cross-service gates require CI execution. |
+| API build/test coverage | VERIFIED-PARTIAL | Existing API security tests cover authentication boundaries; the authenticated read route is now covered by regression tests. New cross-service gates require CI execution. |
 | Security / OWASP API | NOT CERTIFIED | Full BOLA/IDOR, auth, property authorization, SSRF, resource exhaustion, misconfiguration and inventory tests remain. |
-| Internal service authentication | IN PROGRESS | NL-to-SQL and VERITAS use dedicated service secrets; RECLAIM uses a dedicated worker secret and persisted-job validation. Uniform workload identity and KEY caller authorization remain. |
+| Internal service authentication | IN PROGRESS | NL-to-SQL and VERITAS use dedicated service secrets; RECLAIM uses a dedicated worker secret; KEY now binds caller and tenant. Uniform workload identity remains. |
 | RECLAIM job boundary | IMPLEMENTED, VERIFY | Worker rejects target/type/device mismatches and completed-job replay; focused security tests exist. Atomic multi-worker claim still requires real DB concurrency evidence. |
-| Event Bus delivery boundary | NOT CERTIFIED | Atomic claim/lease, duplicate suppression and concurrent-worker behavior require integration tests against the real persistence layer. |
+| Event Bus delivery boundary | NOT CERTIFIED | Atomic claim/lease, duplicate suppression and concurrent-worker behavior require implementation and integration evidence against the actual persistence layer. |
 | Founder gate | NOT CERTIFIED | FND-026 TTL, single-use, signed receipt and complete critical-action routing require executable evidence. |
 | Integration / E2E | NOT CERTIFIED | Complete machine registration → credential auth → telemetry → Event Bus → ontology/intelligence → command → acknowledgement → audit/ledger flow remains. |
 | Failure / chaos | NOT CERTIFIED | Service, database, Event Bus, network, worker, storage and recovery failure scenarios remain. |
-| Load | IMPLEMENTED, VERIFY | Executable k6 profiles now exist for the 10k msg/s sustained machine workload and 500-VU API read workload. Actual target execution/evidence remains mandatory. |
+| Load | IMPLEMENTED, VERIFY | Executable k6 profiles exist for the 10k msg/s sustained machine workload and 500-VU authenticated API read workload. Actual target execution/evidence remains mandatory. |
 | Backup / restore | NOT CERTIFIED | RTO ≤1h and RPO ≤5m must be demonstrated. |
 | Deployment | IN PROGRESS | Compose coverage is reconciled and Vercel build path corrected; clean deployment, canary and rollback evidence remain. |
 | Runtime verification | NOT CERTIFIED | Requires deployed smoke tests and production-like runtime evidence. |
 | Database performance | IN PROGRESS | RLS/index/performance cleanup must be verified against load targets. |
-| Storage | STAGED, NOT PROVISIONED | Tenant-isolated private `pulse-assets` bucket/policies are now staged in migration `20260910008000`; live storage remains unchanged at 0 buckets/0 policies. |
-| Migration reproducibility | NOT CERTIFIED | Canonical baseline and schema-drift reconciliation remain mandatory before production migration. A read-only schema/RLS verification script is now present at `scripts/verify-schema.sql`. |
+| Storage | STAGED, NOT PROVISIONED | Private tenant-isolated `pulse-assets` bucket/policies remain staged; transcript worker is now aligned to that bucket and tenant-prefix contract, but live storage remains unchanged at 0 buckets/0 policies. |
+| Migration reproducibility | NOT CERTIFIED | Canonical baseline and schema-drift reconciliation remain mandatory before production migration. A read-only schema/RLS verification script is present at `scripts/verify-schema.sql`. |
 | Security regression CI | IMPLEMENTED, VERIFY | Cross-service Python security tests, secret-pattern scanning and Compose secret coverage are defined in `pulse-security-gates.yml`. |
 | Machine-flow certification harness | IMPLEMENTED, VERIFY | `tests/integration/machine-flow-gates.md` defines the complete registration → telemetry → Event Bus → intelligence → command → audit → recovery → Founder → runtime chain and certification thresholds. |
 
@@ -59,9 +59,15 @@ The Spring Security boundary now permits only the device-gateway path through th
 
 NL-to-SQL `/convert` requires `PULSE_NL_TO_SQL_SERVICE_SECRET`. VERITAS `/analyze` requires `PULSE_VERITAS_SERVICE_SECRET` and verifies evidence/session ownership before writing analysis. RECLAIM validates requests against persisted recovery jobs and has focused tampering/replay tests.
 
-Compose now includes Founder Agent, RECLAIM, VERITAS and NL-to-SQL. The new security workflow adds cross-service compilation/tests, repository secret-pattern checks, dangerous-code-pattern checks and Compose secret consistency checks.
+KEY crypto operations now require an allowlisted caller identity and an explicit organization ID, and active-key lookup is constrained by both key ID and organization. Operation audit records carry tenant/caller context. HSM/KMS remains a production requirement.
 
-A private tenant-isolated storage foundation is staged but deliberately not applied to production. Read-only schema/RLS verification and executable k6 load profiles are now part of the hardening artifacts. The complete machine-flow certification sequence is documented for integration execution.
+The authenticated API read workload now targets a real `GET /api/v1/security/health` route instead of a previously nonexistent endpoint. The endpoint is explicitly bearer-authenticated and covered by controller regression tests.
+
+Transcript processing now uses the canonical private `pulse-assets` bucket by default, rejects traversal and tenant-prefix mismatches, and enforces the staged 50 MB storage limit. Atomic worker claiming remains lease-based and worker-bound.
+
+Compose includes Founder Agent, RECLAIM, VERITAS and NL-to-SQL. The security workflow adds cross-service compilation/tests, repository secret-pattern checks, dangerous-code-pattern checks and Compose secret consistency checks.
+
+A private tenant-isolated storage foundation is staged but deliberately not applied to production. Read-only schema/RLS verification and executable k6 load profiles are part of the hardening artifacts. The complete machine-flow certification sequence is documented for integration execution.
 
 These are implementation corrections, not production-certification claims.
 
