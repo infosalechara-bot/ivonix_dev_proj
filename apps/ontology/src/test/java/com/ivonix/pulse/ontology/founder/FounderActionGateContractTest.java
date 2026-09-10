@@ -23,6 +23,14 @@ class FounderActionGateContractTest {
   }
 
   @Test
+  void receiptIsCryptographicallySignedAndRequiresDedicatedSecret() throws Exception {
+    String source = Files.readString(ROOT.resolve("FounderActionGate.java"));
+    assertTrue(source.contains("PULSE_FOUNDER_RECEIPT_SECRET"));
+    assertTrue(source.contains("HmacSHA256"));
+    assertTrue(source.contains("secret.length() < 32"));
+  }
+
+  @Test
   void approvalCreationPersistsContextHash() throws Exception {
     String source = Files.readString(ROOT.resolve("FounderService.java"));
     assertTrue(source.contains("approved_action_hash"));
