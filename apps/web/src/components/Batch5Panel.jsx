@@ -20,3 +20,4 @@ export function GlobalPanel(){
 }
 
 export default function Batch5Panel(props){return <><AcademyPanel {...props}/><GlobalPanel/><MeetPanel {...props}/></>;
+}
