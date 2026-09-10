@@ -40,7 +40,7 @@ The audit covers repository code, frontend, Java backend, Python services/worker
 | Internal service authentication | IN PROGRESS | NL-to-SQL and VERITAS use dedicated service secrets; RECLAIM uses a dedicated worker secret; KEY binds caller and tenant through its current service boundary. Uniform cryptographic workload identity remains. |
 | RECLAIM job boundary | IMPLEMENTED, VERIFY | Worker rejects target/type/device mismatches and completed-job replay; focused security tests exist. Atomic multi-worker claim still requires real DB concurrency evidence. |
 | Event Bus delivery boundary | IMPLEMENTED, VERIFY | Added atomic DB claim/lease with `FOR UPDATE SKIP LOCKED`, worker-bound terminal updates, bounded event/webhook payloads and redirect-disabled SSRF defenses. Real migration execution, two-worker race, lease-expiry recovery and duplicate-side-effect evidence remain mandatory. |
-| Founder gate | NOT CERTIFIED | FND-026 TTL, action/resource binding, single-use, signed receipt and complete critical-action routing require executable evidence. |
+| Founder gate | IMPLEMENTED, VERIFY | FND-026 now requires explicit action/resource context, stores a context hash and generates a single-use consumption receipt. Complete critical-action call-site coverage and real execution/replay evidence remain. |
 | Integration / E2E | NOT CERTIFIED | Complete machine registration → credential auth → telemetry → Event Bus → ontology/intelligence → command → acknowledgement → audit/ledger flow remains. |
 | Failure / chaos | NOT CERTIFIED | Service, database, Event Bus, network, worker, storage and recovery failure scenarios remain. |
 | Load | IMPLEMENTED, VERIFY | Executable k6 profiles exist for the 10k msg/s sustained machine workload and 500-VU authenticated API read workload. Actual target execution/evidence remains mandatory. |
@@ -66,6 +66,8 @@ The authenticated API read workload now targets a real `GET /api/v1/security/hea
 Transcript processing now uses the canonical private `pulse-assets` bucket by default, rejects traversal and tenant-prefix mismatches, and enforces the staged 50 MB storage limit. Atomic worker claiming remains lease-based and worker-bound.
 
 Event Bus delivery now has a staged atomic ownership lease: `claim_event_delivery` uses PostgreSQL row locking with `SKIP LOCKED`, leases are bounded, terminal updates require the current worker and an unexpired lease, and event/webhook payloads are bounded before persistence/delivery. Webhook redirects remain disabled and resolved destinations are checked against non-public address classes. This is an implementation correction; it is not yet an integration certification.
+
+FND-026 approvals now bind to an explicit action, resource type and resource ID. The gate hashes that context, requires it to match the approved request, atomically records consumption metadata, and returns a deterministic receipt hash. The repository worker concurrency harness is bound to the actual `claim_meet_recording(text,integer)` RPC instead of a generic nonexistent claim function.
 
 Compose includes Founder Agent, RECLAIM, VERITAS and NL-to-SQL. The security workflow adds cross-service compilation/tests, repository secret-pattern checks, dangerous-code-pattern checks and Compose secret consistency checks.
 
