@@ -24,6 +24,40 @@ authentication = [
   }
 ]
 
+bridges.webhook.pulse_telemetry {
+  enable = true
+  direction = egress
+  url = "http://backend:8081/api/v1/mqtt/webhook"
+  local_topic = "pulse/v1/devices/+/telemetry"
+  method = post
+  headers {
+    "Content-Type" = "application/json"
+    "X-PULSE-MQTT-WEBHOOK-SECRET" = "${PULSE_MQTT_WEBHOOK_SECRET}"
+  }
+  body = "{\"topic\":\"${topic}\",\"payload\":${payload},\"clientid\":\"${clientid}\",\"event\":\"message.publish\"}"
+  connect_timeout = 5s
+  request_timeout = 15s
+  max_retries = 5
+  retry_interval = 1s
+}
+
+bridges.webhook.pulse_ack {
+  enable = true
+  direction = egress
+  url = "http://backend:8081/api/v1/mqtt/webhook"
+  local_topic = "pulse/v1/devices/+/ack"
+  method = post
+  headers {
+    "Content-Type" = "application/json"
+    "X-PULSE-MQTT-WEBHOOK-SECRET" = "${PULSE_MQTT_WEBHOOK_SECRET}"
+  }
+  body = "{\"topic\":\"${topic}\",\"payload\":${payload},\"clientid\":\"${clientid}\",\"event\":\"message.publish\"}"
+  connect_timeout = 5s
+  request_timeout = 15s
+  max_retries = 5
+  retry_interval = 1s
+}
+
 authorization {
   no_match = deny
   deny_action = disconnect
