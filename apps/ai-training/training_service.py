@@ -6,14 +6,18 @@ from pydantic import BaseModel
 import joblib, numpy as np, pandas as pd, requests
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, IsolationForest
 
-app=FastAPI(title='PULSE AI Studio Training',version='1.1')
+app=FastAPI(title='PULSE AI Studio Training',version='1.2')
 SUPABASE_URL=os.environ.get('SUPABASE_URL','').rstrip('/')
 SUPABASE_KEY=os.environ.get('SUPABASE_SERVICE_ROLE_KEY','')
 SERVICE_SECRET=os.environ.get('PULSE_AI_TRAINING_SERVICE_SECRET','')
 MODEL_ROOT=Path(os.environ.get('MODEL_ROOT','/models')).resolve(); MODEL_ROOT.mkdir(parents=True,exist_ok=True)
+DATASET_ROOT=Path(os.environ.get('DATASET_ROOT','/datasets')).resolve()
+MAX_DATASET_BYTES=int(os.environ.get('MAX_DATASET_BYTES','262144000'))
 bearer=HTTPBearer(auto_error=False)
 if not SUPABASE_URL or not SUPABASE_KEY or not SERVICE_SECRET:
     raise RuntimeError('Training worker requires Supabase credentials and PULSE_AI_TRAINING_SERVICE_SECRET')
+if MAX_DATASET_BYTES < 1 or MAX_DATASET_BYTES > 1073741824:
+    raise RuntimeError('MAX_DATASET_BYTES must be between 1 byte and 1 GiB')
 
 class TrainingRequest(BaseModel):
     organization_id:str
@@ -42,6 +46,16 @@ def safe_artifact(model_id):
     path=(MODEL_ROOT/model_id/'model.joblib').resolve()
     if MODEL_ROOT not in path.parents: raise ValueError('Artifact path escapes model root')
     return path
+def safe_dataset(storage_path):
+    if not storage_path: raise ValueError('Dataset storage path is required')
+    raw=str(storage_path).strip()
+    if not raw or '://' in raw: raise ValueError('Dataset must use a local managed dataset path')
+    source=Path(raw).resolve()
+    if DATASET_ROOT not in source.parents: raise ValueError('Dataset path escapes dataset root')
+    if not source.is_file(): raise ValueError('Dataset is unavailable to training worker')
+    size=source.stat().st_size
+    if size > MAX_DATASET_BYTES: raise ValueError('Dataset exceeds configured size limit')
+    return source
 
 def run(req:TrainingRequest):
     try:
@@ -52,8 +66,7 @@ def run(req:TrainingRequest):
         if len(dataset)!=1: raise ValueError('Training dataset not found')
         dataset=dataset[0]; fmt=(dataset.get('format') or 'csv').lower(); path=dataset.get('storage_path')
         if fmt!='csv': raise ValueError('CSV is the only registered trainer format')
-        source=Path(path or '').resolve()
-        if not source.is_file(): raise ValueError('Dataset is unavailable to training worker')
+        source=safe_dataset(path)
         df=pd.read_csv(source)
         target='target' if 'target' in df.columns else None
         if not target: raise ValueError('CSV must contain a target column named target')
