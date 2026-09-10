@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pulse.example/schemas/pulse_event_v1.json",
+  "title": "PulseEventV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_id","event_type","event_version","envelope_version","occurred_at","producer","aggregate_type","aggregate_id","org_id","correlation_id","causation_id","payload","signature"],
+  "properties": {
+    "event_id": {"type":"string","pattern":"^[0-9A-HJKMNP-TV-Z]{26}$"},
+    "event_type": {"type":"string","pattern":"^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"},
+    "event_version": {"type":"integer","minimum":1},
+    "envelope_version": {"type":"integer","const":1},
+    "occurred_at": {"type":"string","pattern":"^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"},
+    "producer": {"type":"string","pattern":"^pulse-[a-z0-9-]+$"},
+    "aggregate_type": {"type":"string","minLength":1},
+    "aggregate_id": {"type":"string","minLength":1},
+    "org_id": {"type":["string","null"]},
+    "correlation_id": {"type":"string","minLength":1},
+    "causation_id": {"type":["string","null"]},
+    "payload": {"type":"object"},
+    "signature": {"type":"string","minLength":16}
+  }
+}
