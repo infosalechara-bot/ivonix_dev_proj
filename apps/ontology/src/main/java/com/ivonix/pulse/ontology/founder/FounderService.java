@@ -12,6 +12,7 @@ import java.util.*;
 
 @Service
 public class FounderService {
+  private static final int CONFIRMATION_TTL_MINUTES = 10;
   private final JdbcTemplate jdbc;
   private final SecureRandom random = new SecureRandom();
 
@@ -51,8 +52,9 @@ public class FounderService {
     String contextHash=contextHash(orgId,description,type,resource);
     String token=randomToken();
     UUID id=UUID.randomUUID();
-    jdbc.update("insert into public.executive_confirmations(id,organization_id,requested_action,requested_by,confirmation_token_hash,approved_action_hash) values (?,?,?,?,?,?)",
-        id,orgId,description,userId,hash(token),contextHash);
+    jdbc.update("insert into public.executive_confirmations(id,organization_id,requested_action,requested_by,confirmation_token_hash,approved_action_hash,expires_at) values (?,?,?,?,?,?,now() + interval '10 minutes')",
+        id,orgId,description,userId,hash(token),contextHash, null);
+    jdbc.update("update public.executive_confirmations set approved_action_hash=? where id=?",contextHash,id);
     jdbc.update("insert into public.founder_messages(organization_id,sender,message_text,message_type,urgency) values (?,?,?,?,?)",
         orgId,"pulse_agent","Confirmation required: "+description+" ["+type+":"+resource+"]","signal","critical");
     return jdbc.queryForObject("select id,requested_action,status,requested_at,expires_at from public.executive_confirmations where id=?",
