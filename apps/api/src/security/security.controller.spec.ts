@@ -25,4 +25,14 @@ describe('SecurityController authentication boundary', () => {
     expect(security.authenticate).toHaveBeenCalledWith('signed-user-token');
     expect(security.lookupThreat).toHaveBeenCalledWith('127.0.0.1', 'ip', 'user-1');
   });
+
+  it('protects the API read health endpoint with the same authentication boundary', async () => {
+    const controller = new SecurityController(security);
+    await expect(controller.health(undefined)).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(security.authenticate).not.toHaveBeenCalled();
+    await expect(controller.health('Bearer signed-user-token')).resolves.toEqual({
+      status: 'ok', authenticated: true, userId: 'user-1',
+    });
+    expect(security.authenticate).toHaveBeenCalledWith('signed-user-token');
+  });
 });
