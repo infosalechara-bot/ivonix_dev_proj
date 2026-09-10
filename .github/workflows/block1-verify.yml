@@ -1,0 +1,23 @@
+name: Block 1 - Contract Verification
+on:
+ pull_request:
+  paths: ['packages/pulse-contracts/**','scripts/verify_block1.sh','scripts/check_registry_coverage.py']
+ push:
+  branches: [main]
+jobs:
+ verify:
+  runs-on: ubuntu-latest
+  steps:
+   - uses: actions/checkout@v4
+   - uses: actions/setup-node@v4
+     with: {node-version: '20'}
+   - uses: actions/setup-python@v5
+     with: {python-version: '3.12'}
+   - uses: actions/setup-java@v4
+     with: {distribution: temurin, java-version: '21'}
+   - run: ./scripts/verify_block1.sh
+   - name: Registry coverage
+     env:
+      SUPABASE_URL: ${{ secrets.PULSE_TEST_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PULSE_TEST_SUPABASE_SERVICE_ROLE_KEY }}
+     run: python scripts/check_registry_coverage.py

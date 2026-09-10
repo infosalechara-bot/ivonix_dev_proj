@@ -1,0 +1,1 @@
+export type PulseRole='owner'|'admin'|'operator'|'viewer'; export type PulseActorType='user'|'service'|'device'|'founder'; export interface PulseClaims{sub:string;iat:number;exp:number;organization_id:string;org_id:string;role:PulseRole;scopes:string[];actor_type:PulseActorType;session_id:string;iss:'pulse';aud:'pulse-api'}

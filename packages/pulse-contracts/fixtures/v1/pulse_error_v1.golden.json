@@ -1,0 +1,1 @@
+{"error":{"code":"VALIDATION_FAILED","message":"Request body failed validation.","message_key":"errors.validation.failed","details":{"fields":{"device_id":"required"}},"request_id":"req_01hz8x2k5m6p7q8r9s0t1","docs_url":"https://docs.pulse.example/errors/VALIDATION_FAILED"},"error_legacy":"validation_failed","fields":{"device_id":"required"}}

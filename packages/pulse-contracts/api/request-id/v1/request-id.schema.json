@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://contracts.pulse-ivonix.site/api/request-id/v1","title":"PULSE Request ID v1","type":"string","pattern":"^req_[a-z0-9]{21}$"}
