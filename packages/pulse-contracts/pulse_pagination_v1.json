@@ -1,0 +1,8 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://pulse-ivonix.site/contracts/pulse_pagination_v1.json",
+  "title":"PULSE Cursor Page v1",
+  "type":"object","additionalProperties":false,
+  "required":["items","cursor","hasMore"],
+  "properties":{"items":{"type":"array"},"cursor":{"type":["string","null"],"maxLength":2048},"hasMore":{"type":"boolean"},"total":{"type":"integer","minimum":0}}
+}
