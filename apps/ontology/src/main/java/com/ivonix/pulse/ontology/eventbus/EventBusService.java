@@ -37,10 +37,8 @@ public class EventBusService {
         requireMember(org, userId);
         UUID typeId = jdbc.queryForObject("select id from public.event_types where name=?", UUID.class, type);
         UUID id = UUID.randomUUID();
-        try {
-            jdbc.update("insert into public.events(id,event_type_id,organization_id,source_service,payload,correlation_id) values (?,?,?,?,?::jsonb,?)",
-                    id, typeId, org, source, mapper.writeValueAsString(payload == null ? Map.of() : payload), correlationId);
-        } catch (JsonProcessingException e) { throw new IllegalArgumentException("Invalid event payload", e); }
+        try { jdbc.update("insert into public.events(id,event_type_id,organization_id,source_service,payload,correlation_id) values (?,?,?,?,?::jsonb,?)", id, typeId, org, source, mapper.writeValueAsString(payload == null ? Map.of() : payload), correlationId); }
+        catch (JsonProcessingException e) { throw new IllegalArgumentException("Invalid event payload", e); }
         queueDeliveries(id, typeId, org);
         return id;
     }
@@ -55,10 +53,8 @@ public class EventBusService {
         if (!Set.of("service", "user").contains(r.subscriberType())) throw new IllegalArgumentException("Invalid subscriber type");
         if (r.endpointUrl() != null) validateEndpoint(r.endpointUrl());
         UUID id = UUID.randomUUID();
-        try {
-            jdbc.update("insert into public.event_subscriptions(id,organization_id,subscriber_type,subscriber_id,event_type_id,filter,endpoint_url) values (?,?,?,?,?,?,?)",
-                    id, r.organizationId(), r.subscriberType(), r.subscriberId(), r.eventTypeId(), r.filter() == null ? null : mapper.writeValueAsString(r.filter()), r.endpointUrl());
-        } catch (JsonProcessingException e) { throw new IllegalArgumentException("Invalid subscription filter", e); }
+        try { jdbc.update("insert into public.event_subscriptions(id,organization_id,subscriber_type,subscriber_id,event_type_id,filter,endpoint_url) values (?,?,?,?,?,?,?)", id, r.organizationId(), r.subscriberType(), r.subscriberId(), r.eventTypeId(), r.filter() == null ? null : mapper.writeValueAsString(r.filter()), r.endpointUrl()); }
+        catch (JsonProcessingException e) { throw new IllegalArgumentException("Invalid subscription filter", e); }
         return new SubscriptionResult(id, r.endpointUrl() == null ? null : webhookSecret(id));
     }
 
@@ -68,8 +64,7 @@ public class EventBusService {
 
     public void deliverPending(int batchSize) {
         int n = Math.max(1, Math.min(batchSize, 500));
-        List<Map<String,Object>> rows = jdbc.queryForList(
-                "select d.id,d.event_id,d.subscription_id,d.attempts,d.last_attempt_at,e.payload,e.source_service,e.event_time,e.correlation_id,s.endpoint_url " +
+        List<Map<String,Object>> rows = jdbc.queryForList("select d.id,d.event_id,d.subscription_id,d.attempts,d.last_attempt_at,e.payload,e.source_service,e.event_time,e.correlation_id,s.endpoint_url " +
                 "from public.event_deliveries d join public.events e on e.id=d.event_id join public.event_subscriptions s on s.id=d.subscription_id " +
                 "where (d.status='pending' or (d.status='failed' and d.attempts < ? and (d.last_attempt_at is null or d.last_attempt_at < now() - make_interval(secs => least(300, greatest(5, power(2, least(d.attempts, 8)))))))) " +
                 "order by coalesce(d.last_attempt_at,to_timestamp(0)),d.id limit ?", MAX_ATTEMPTS, n);
@@ -83,7 +78,13 @@ public class EventBusService {
             if (endpoint != null) {
                 validateEndpoint(endpoint);
                 UUID subscriptionId = (UUID) r.get("subscription_id");
-                String body = mapper.writeValueAsString(Map.of("id", r.get("event_id"), "sourceService", r.get("source_service"), "eventTime", r.get("event_time"), "payload", r.get("payload"), "correlationId", r.get("correlation_id")));
+                Map<String,Object> envelope = new LinkedHashMap<>();
+                envelope.put("id", r.get("event_id"));
+                envelope.put("sourceService", r.get("source_service"));
+                envelope.put("eventTime", r.get("event_time"));
+                envelope.put("payload", r.get("payload"));
+                envelope.put("correlationId", r.get("correlation_id"));
+                String body = mapper.writeValueAsString(envelope);
                 long timestamp = System.currentTimeMillis() / 1000;
                 String signature = "sha256=" + hmacHex(webhookSecret(subscriptionId), timestamp + "." + body);
                 HttpRequest req = HttpRequest.newBuilder(URI.create(endpoint)).timeout(Duration.ofSeconds(10))
@@ -103,40 +104,19 @@ public class EventBusService {
         }
     }
 
-    private String webhookSecret(UUID subscriptionId) {
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(hmacBytes("pulse-webhook-v1:" + subscriptionId));
-    }
-
-    private byte[] hmacBytes(String value) {
-        try { Mac mac = Mac.getInstance("HmacSHA256"); mac.init(new SecretKeySpec(webhookRootKey, "HmacSHA256")); return mac.doFinal(value.getBytes(StandardCharsets.UTF_8)); }
-        catch (Exception e) { throw new IllegalStateException("Webhook signing unavailable", e); }
-    }
-
-    private String hmacHex(String secret, String value) {
-        try {
-            byte[] key = Base64.getUrlDecoder().decode(secret);
-            Mac mac = Mac.getInstance("HmacSHA256"); mac.init(new SecretKeySpec(key, "HmacSHA256"));
-            return HexFormat.of().formatHex(mac.doFinal(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (Exception e) { throw new IllegalStateException("Webhook signing unavailable", e); }
-    }
+    private String webhookSecret(UUID subscriptionId) { return Base64.getUrlEncoder().withoutPadding().encodeToString(hmacBytes("pulse-webhook-v1:" + subscriptionId)); }
+    private byte[] hmacBytes(String value) { try { Mac mac = Mac.getInstance("HmacSHA256"); mac.init(new SecretKeySpec(webhookRootKey, "HmacSHA256")); return mac.doFinal(value.getBytes(StandardCharsets.UTF_8)); } catch (Exception e) { throw new IllegalStateException("Webhook signing unavailable", e); } }
+    private String hmacHex(String secret, String value) { try { byte[] key = Base64.getUrlDecoder().decode(secret); Mac mac = Mac.getInstance("HmacSHA256"); mac.init(new SecretKeySpec(key, "HmacSHA256")); return HexFormat.of().formatHex(mac.doFinal(value.getBytes(StandardCharsets.UTF_8))); } catch (Exception e) { throw new IllegalStateException("Webhook signing unavailable", e); } }
 
     private void validateEndpoint(String endpoint) {
         URI uri;
         try { uri = URI.create(endpoint); } catch (IllegalArgumentException e) { throw new IllegalArgumentException("Invalid webhook URL", e); }
         if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getUserInfo() != null || uri.getHost() == null) throw new IllegalArgumentException("Webhook URL must be HTTPS with a public hostname");
-        try {
-            for (InetAddress address : InetAddress.getAllByName(uri.getHost())) {
-                if (address.isAnyLocalAddress() || address.isLoopbackAddress() || address.isLinkLocalAddress() || address.isSiteLocalAddress() || isDocumentationOrSpecial(address)) throw new IllegalArgumentException("Webhook destination is not publicly routable");
-            }
-        } catch (java.net.UnknownHostException e) { throw new IllegalArgumentException("Webhook hostname could not be resolved", e); }
+        try { for (InetAddress address : InetAddress.getAllByName(uri.getHost())) if (address.isAnyLocalAddress() || address.isLoopbackAddress() || address.isLinkLocalAddress() || address.isSiteLocalAddress() || isDocumentationOrSpecial(address)) throw new IllegalArgumentException("Webhook destination is not publicly routable"); }
+        catch (java.net.UnknownHostException e) { throw new IllegalArgumentException("Webhook hostname could not be resolved", e); }
     }
 
-    private boolean isDocumentationOrSpecial(InetAddress address) {
-        byte[] b = address.getAddress();
-        if (b.length == 4) { int a = b[0] & 255, c = b[1] & 255; return a == 0 || a == 100 && c >= 64 && c <= 127 || a == 198 && (b[2] & 255) >= 18 && (b[2] & 255) <= 19 || a == 192 && c == 0; }
-        return false;
-    }
-
+    private boolean isDocumentationOrSpecial(InetAddress address) { byte[] b = address.getAddress(); if (b.length == 4) { int a = b[0] & 255, c = b[1] & 255; return a == 0 || a == 100 && c >= 64 && c <= 127 || a == 198 && (b[2] & 255) >= 18 && (b[2] & 255) <= 19 || a == 192 && c == 0; } return false; }
     private void requireMember(UUID org, UUID user) { Integer n = jdbc.queryForObject("select count(*) from public.organization_members where organization_id=? and user_id=?", Integer.class, org, user); if (n == null || n < 1) throw new SecurityException("Organization membership required"); }
     public record SubscriptionRequest(UUID organizationId, String subscriberType, String subscriberId, UUID eventTypeId, Map<String,Object> filter, String endpointUrl) {}
     public record SubscriptionResult(UUID subscriptionId, String webhookSecret) {}
