@@ -1,10 +1,12 @@
 import importlib
+import sys
 
 
 def load_module(monkeypatch):
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role")
     monkeypatch.setenv("PULSE_TWIN_SERVICE_SECRET", "twin-secret")
+    sys.modules.pop("simulation_service", None)
     return importlib.import_module("simulation_service")
 
 
