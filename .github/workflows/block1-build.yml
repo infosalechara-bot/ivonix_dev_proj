@@ -1,0 +1,60 @@
+name: Block 1 - Runtime Build
+
+on:
+  push:
+    branches: [main, pulse-production-bulk-hardening]
+    paths:
+      - 'apps/ontology/**'
+      - 'tests/e2e/**'
+      - 'docker-compose.yml'
+      - 'infra/emqx/**'
+      - '.github/workflows/block1-build.yml'
+  pull_request:
+    paths:
+      - 'apps/ontology/**'
+      - 'tests/e2e/**'
+      - 'docker-compose.yml'
+      - 'infra/emqx/**'
+      - '.github/workflows/block1-build.yml'
+
+concurrency:
+  group: block1-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ontology-compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Compile ontology runtime
+        working-directory: apps/ontology
+        run: mvn -q -Dmaven.test.skip=true package
+
+  e2e-syntax:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install E2E dependencies
+        working-directory: tests/e2e
+        run: npm install --no-audit --no-fund
+      - name: Type-check E2E harness
+        working-directory: tests/e2e
+        run: npx tsc --noEmit --allowJs false --module NodeNext --moduleResolution NodeNext --target ES2022 golden_path_1.spec.ts
+
+  compose-config:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Docker Compose syntax
+        run: docker compose config --quiet
