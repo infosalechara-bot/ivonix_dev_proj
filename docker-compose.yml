@@ -4,6 +4,7 @@ services:
     ports: ["1883:1883", "18083:18083"]
     environment:
       EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD_PASSWORD:-change-me-local}
+      PULSE_MQTT_WEBHOOK_SECRET: ${PULSE_MQTT_WEBHOOK_SECRET}
     volumes:
       - ./infra/emqx/base.hocon:/opt/emqx/etc/base.hocon:ro
       - ./infra/emqx/acl.conf:/opt/emqx/etc/acl.conf:ro
