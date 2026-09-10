@@ -11,7 +11,7 @@ on:
       - 'docker-compose.yml'
       - '.github/workflows/pulse-python-services-ci.yml'
   push:
-    branches: [main, pulse-foundation-hardening, pulse-foundation-gate2]
+    branches: [main, pulse-foundation-hardening, pulse-foundation-gate2, pulse-platform-gate3]
 
 jobs:
   python-services:
