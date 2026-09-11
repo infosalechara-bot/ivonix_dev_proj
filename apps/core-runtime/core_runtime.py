@@ -13,7 +13,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
-app = FastAPI(title="PULSE CORE Runtime", version="0.3.0")
+app = FastAPI(title="PULSE CORE Runtime", version="0.4.0")
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 CORE_SERVICE_SECRET = os.environ.get("PULSE_CORE_SERVICE_SECRET", "")
@@ -122,6 +122,9 @@ def run_inference(req: InferenceRequest):
     if model["organization_id"] != req.organization_id:
         fail_job(req.job_id, req.organization_id, "organization_scope_mismatch", 0)
         raise RuntimeError("Organization scope mismatch")
+    if not model.get("execution_enabled", False):
+        fail_job(req.job_id, req.organization_id, "model_not_admitted", 0)
+        raise RuntimeError("Model is not admitted for execution")
 
     stop = threading.Event()
     lease_lost = threading.Event()
@@ -176,7 +179,7 @@ def run_inference(req: InferenceRequest):
 def fetch_model(model_id: str, organization_id: str):
     response = supabase_request("GET", "core_models", params={
         "id": f"eq.{model_id}", "organization_id": f"eq.{organization_id}",
-        "select": "id,organization_id,model_path,input_shape,output_shape,framework"
+        "select": "id,organization_id,model_path,input_shape,output_shape,framework,execution_enabled,admitted_at,admitted_by"
     })
     rows = response.json()
     if len(rows) != 1:
