@@ -20,6 +20,7 @@ async function db(path:string){
   assert.equal(r.status,200,`DB query failed: ${path}`); return r.json();
 }
 function waitForMessage(client:any,timeout=10000){return new Promise<any>((resolve,reject)=>{const timer=setTimeout(()=>{client.removeAllListeners('message');reject(new Error('MQTT message timeout'))},timeout);client.once('message',(_topic:any,payload:any)=>{clearTimeout(timer);resolve(JSON.parse(payload.toString()))})})}
+async function waitForCommandStatus(commandId:string,status:string){for(let i=0;i<20;i++){const rows=await db(`/rest/v1/device_commands?id=eq.${commandId}&select=status&limit=1`);if(rows[0]?.status===status)return;await new Promise(r=>setTimeout(r,500));}throw new Error(`command ${commandId} did not reach ${status}`)}
 
 const activation=await api('/api/v1/key/activation-codes',{method:'POST',body:JSON.stringify({organizationId:ORG_ID,ttlMinutes:10,maxUses:1,scopes:['key:use']})});
 assert.equal(activation.r.status,200); assert.ok(activation.body.code);
@@ -39,14 +40,35 @@ assert.ok(live,'live telemetry was not projected'); assert.equal(live.device.sta
 const telemetryRows=await db(`/rest/v1/device_telemetry?device_id=eq.${deviceId}&select=id,data&order=id.desc&limit=1`);assert.equal(telemetryRows.length,1);
 const eventRows=await db(`/rest/v1/events?organization_id=eq.${ORG_ID}&external_event_id=eq.${telemetry.messageId}&select=id,event_type_id&limit=1`);assert.equal(eventRows.length,1);
 
-const idem=crypto.randomUUID(); const command=await api('/api/v1/device-commands',{method:'POST',headers:{'Idempotency-Key':idem},body:JSON.stringify({organizationId:ORG_ID,deviceId,commandType:'SET_SPEED',payload:{rpm:1200}})});assert.equal(command.r.status,202);assert.ok(command.body.commandId);
+// Exact message replay is idempotent: the same messageId must not create another telemetry row.
+client.publish(`pulse/v1/devices/${deviceId}/telemetry`,JSON.stringify(telemetry),{qos:1});
+await new Promise(r=>setTimeout(r,1000));
+const replayRows=await db(`/rest/v1/device_telemetry?device_id=eq.${deviceId}&select=id&order=id.desc&limit=2`);assert.equal(replayRows.length,1,'exact telemetry replay created a duplicate row');
+
+const idem=crypto.randomUUID();
+const commandBody=JSON.stringify({organizationId:ORG_ID,deviceId,commandType:'SET_SPEED',payload:{rpm:1200}});
+const [commandA,commandB]=await Promise.all([
+  api('/api/v1/device-commands',{method:'POST',headers:{'Idempotency-Key':idem},body:commandBody}),
+  api('/api/v1/device-commands',{method:'POST',headers:{'Idempotency-Key':idem},body:commandBody})
+]);
+assert.equal(commandA.r.status,202); assert.equal(commandB.r.status,202); assert.ok(commandA.body.commandId); assert.equal(commandA.body.commandId,commandB.body.commandId,'concurrent idempotent requests created different commands');
+const command=commandA;
 const received=await waitForMessage(client);assert.equal(received.commandId,command.body.commandId);assert.equal(received.payload.rpm,1200);
+await waitForCommandStatus(command.body.commandId,'published');
 const commandRows=await db(`/rest/v1/device_commands?id=eq.${command.body.commandId}&select=status&limit=1`);assert.equal(commandRows[0].status,'published');
 
 const ack={schemaVersion:'1.0',messageId:crypto.randomUUID(),deviceId,messageType:'COMMAND_ACK',sentAt:new Date().toISOString(),sequence:2,payload:{commandId:command.body.commandId,status:'accepted'}};
 client.publish(`pulse/v1/devices/${deviceId}/ack`,JSON.stringify(ack),{qos:1});
-let acknowledged=false; for(let i=0;i<20;i++){await new Promise(r=>setTimeout(r,500));const rows=await db(`/rest/v1/device_commands?id=eq.${command.body.commandId}&select=status,acknowledged_at&limit=1`);if(rows[0]?.status==='acknowledged'){acknowledged=true;break}}
-assert.ok(acknowledged,'command was not acknowledged');
+await waitForCommandStatus(command.body.commandId,'acknowledged');
+
+// A different message at an already-consumed sequence must be rejected and must not write telemetry.
+const beforeStale=await db(`/rest/v1/device_telemetry?device_id=eq.${deviceId}&select=id`);
+const stale={schemaVersion:'1.0',messageId:crypto.randomUUID(),deviceId,messageType:'TELEMETRY',sentAt:new Date().toISOString(),sequence:1,payload:{temperature:99,pressure:99}};
+client.publish(`pulse/v1/devices/${deviceId}/telemetry`,JSON.stringify(stale),{qos:1});
+await new Promise(r=>setTimeout(r,1000));
+const afterStale=await db(`/rest/v1/device_telemetry?device_id=eq.${deviceId}&select=id`);assert.equal(afterStale.length,beforeStale.length,'stale telemetry sequence was accepted');
+const staleEvent=await db(`/rest/v1/events?organization_id=eq.${ORG_ID}&external_event_id=eq.${stale.messageId}&select=id&limit=1`);assert.equal(staleEvent.length,0,'stale telemetry emitted an event');
+
 const audit=await db(`/rest/v1/audit_logs?resource_id=eq.${deviceId}&action=in.(device.register,telemetry.received)&select=action`);assert.ok(audit.some((x:any)=>x.action==='device.register'));assert.ok(audit.some((x:any)=>x.action==='telemetry.received'));
 const commandAudit=await db(`/rest/v1/audit_logs?resource_id=eq.${command.body.commandId}&action=in.(command.issued,command.acknowledged)&select=action`);assert.ok(commandAudit.some((x:any)=>x.action==='command.issued'));assert.ok(commandAudit.some((x:any)=>x.action==='command.acknowledged'));
-client.end(true); console.log('BLOCK 1 GOLDEN PATH 1: PASS — register, auth, MQTT, webhook, telemetry, online, event, UI projection, command, receipt, ACK, audit');
+client.end(true); console.log('BLOCK 1 GOLDEN PATH 1: PASS — registration, auth, MQTT, telemetry, online projection, event, replay rejection, concurrent command idempotency, command receipt, ACK, audit');
