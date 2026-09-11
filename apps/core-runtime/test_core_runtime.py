@@ -42,6 +42,7 @@ def test_claim_is_authoritative_and_request_payload_is_not_used(monkeypatch):
         "input_shape": None,
         "output_shape": None,
         "framework": "invalid",
+        "execution_enabled": True,
     })
     monkeypatch.setattr(module, "fail_job", lambda *args: True)
 
