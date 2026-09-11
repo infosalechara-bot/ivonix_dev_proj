@@ -1,1 +1,1 @@
-{"private":true,"type":"module","scripts":{"golden-path-1":"tsx golden_path_1.spec.ts"},"dependencies":{"mqtt":"^5.14.0","tsx":"^4.20.3"},"devDependencies":{"typescript":"^5.9.2","@types/node":"^24.3.0"}}
+{"private":true,"type":"module","scripts":{"golden-path":"tsx golden_path_1.spec.ts","golden-path-1":"tsx golden_path_1.spec.ts","browser-golden-path":"node browser_golden_path.spec.mjs"},"dependencies":{"mqtt":"^5.14.0","tsx":"^4.20.3","puppeteer":"^24.22.0"},"devDependencies":{"typescript":"^5.9.2","@types/node":"^24.3.0"}}
