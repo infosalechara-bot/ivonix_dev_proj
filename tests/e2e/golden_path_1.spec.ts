@@ -42,7 +42,7 @@ const eventRows=await db(`/rest/v1/events?organization_id=eq.${ORG_ID}&external_
 const canonical=eventRows[0].canonical_envelope;
 assert.ok(canonical,'event did not persist a canonical PULSE envelope');
 assert.match(canonical.eventId,/^[0-9A-HJKMNP-TV-Z]{26}$/);
-assert.equal(canonical.eventVersion,1); assert.equal(canonical.organizationId,ORG_ID); assert.equal(canonical.aggregateType,'Machine'); assert.equal(canonical.aggregateId,deviceId);
+assert.equal(canonical.eventVersion,1); assert.equal(canonical.envelopeVersion,1); assert.equal(canonical.organizationId,ORG_ID); assert.equal(canonical.aggregateType,'Machine'); assert.equal(canonical.aggregateId,deviceId);
 assert.equal(canonical.payload.deviceId,deviceId); assert.equal(canonical.payload.messageId,telemetry.messageId); assert.match(canonical.eventType,/^[a-z][a-z0-9]*(\.[a-z0-9]+)+$/);
 assert.match(canonical.occurredAt,/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/); assert.match(canonical.signature,/^sha256=[0-9a-f]{64}$/);
 
