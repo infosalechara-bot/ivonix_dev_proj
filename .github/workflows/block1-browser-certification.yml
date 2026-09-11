@@ -1,0 +1,42 @@
+name: Block 1 - Browser Golden Path Certification
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: block1-browser-certification
+  cancel-in-progress: false
+
+jobs:
+  browser-golden-path:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PULSE_WEB_BASE_URL: ${{ secrets.PULSE_WEB_BASE_URL }}
+      PULSE_WEB_ACCESS_TOKEN: ${{ secrets.PULSE_WEB_ACCESS_TOKEN }}
+      PULSE_WEB_ORG_ID: ${{ secrets.PULSE_WEB_ORG_ID }}
+      PULSE_WEB_DEVICE_ID: ${{ secrets.PULSE_WEB_DEVICE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pulse-production-bulk-hardening
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: tests/e2e/package.json
+      - name: Verify browser certification inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in PULSE_WEB_BASE_URL PULSE_WEB_ACCESS_TOKEN PULSE_WEB_ORG_ID PULSE_WEB_DEVICE_ID; do
+            if [ -z "${!name:-}" ]; then echo "ERROR: ${name} is required"; missing=1; fi
+          done
+          [ "$missing" -eq 0 ]
+      - name: Install browser harness
+        working-directory: tests/e2e
+        run: npm install --no-audit --no-fund
+      - name: Execute authenticated browser Golden Path
+        working-directory: tests/e2e
+        run: npm run browser-golden-path
