@@ -38,7 +38,13 @@ client.publish(`pulse/v1/devices/${deviceId}/telemetry`,JSON.stringify(telemetry
 let live:any; for(let i=0;i<20;i++){await new Promise(r=>setTimeout(r,500));const x=await api(`/api/v1/devices/${deviceId}/live`);if(x.r.ok&&x.body.latestTelemetry?.id){live=x.body;break}}
 assert.ok(live,'live telemetry was not projected'); assert.equal(live.device.status,'online'); assert.equal(live.latestTelemetry.data.temperature,42.5);
 const telemetryRows=await db(`/rest/v1/device_telemetry?device_id=eq.${deviceId}&select=id,data&order=id.desc&limit=1`);assert.equal(telemetryRows.length,1);
-const eventRows=await db(`/rest/v1/events?organization_id=eq.${ORG_ID}&external_event_id=eq.${telemetry.messageId}&select=id,event_type_id,organization_id,payload&limit=1`);assert.equal(eventRows.length,1); assert.equal(eventRows[0].organization_id,ORG_ID);
+const eventRows=await db(`/rest/v1/events?organization_id=eq.${ORG_ID}&external_event_id=eq.${telemetry.messageId}&select=id,event_type_id,organization_id,payload,canonical_envelope&limit=1`);assert.equal(eventRows.length,1); assert.equal(eventRows[0].organization_id,ORG_ID);
+const canonical=eventRows[0].canonical_envelope;
+assert.ok(canonical,'event did not persist a canonical PULSE envelope');
+assert.match(canonical.eventId,/^[0-9A-HJKMNP-TV-Z]{26}$/);
+assert.equal(canonical.eventVersion,1); assert.equal(canonical.organizationId,ORG_ID); assert.equal(canonical.aggregateType,'Machine'); assert.equal(canonical.aggregateId,deviceId);
+assert.equal(canonical.payload.deviceId,deviceId); assert.equal(canonical.payload.messageId,telemetry.messageId); assert.match(canonical.eventType,/^[a-z][a-z0-9]*(\.[a-z0-9]+)+$/);
+assert.match(canonical.occurredAt,/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/); assert.match(canonical.signature,/^sha256=[0-9a-f]{64}$/);
 
 // Exact message replay is idempotent: the same messageId must not create another telemetry row.
 client.publish(`pulse/v1/devices/${deviceId}/telemetry`,JSON.stringify(telemetry),{qos:1});
@@ -84,4 +90,4 @@ const staleEvent=await db(`/rest/v1/events?organization_id=eq.${ORG_ID}&external
 
 const audit=await db(`/rest/v1/audit_logs?resource_id=eq.${deviceId}&action=in.(device.register,telemetry.received)&select=action`);assert.ok(audit.some((x:any)=>x.action==='device.register'));assert.ok(audit.some((x:any)=>x.action==='telemetry.received'));
 const commandAudit=await db(`/rest/v1/audit_logs?resource_id=eq.${command.body.commandId}&action=in.(command.issued,command.acknowledged)&select=action`);assert.ok(commandAudit.some((x:any)=>x.action==='command.issued'));assert.ok(commandAudit.some((x:any)=>x.action==='command.acknowledged'));
-client.end(true); console.log('BLOCK 1 GOLDEN PATH 1: PASS — registration, auth, MQTT, telemetry, online projection, event, replay rejection, device identity isolation, concurrent command idempotency, tenant authorization, command receipt, ACK, audit');
+client.end(true); console.log('BLOCK 1 GOLDEN PATH 1: PASS — registration, auth, MQTT, telemetry, online projection, canonical event envelope, replay rejection, device identity isolation, concurrent command idempotency, tenant authorization, command receipt, ACK, audit');
