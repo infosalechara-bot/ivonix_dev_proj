@@ -38,12 +38,19 @@ client.publish(`pulse/v1/devices/${deviceId}/telemetry`,JSON.stringify(telemetry
 let live:any; for(let i=0;i<20;i++){await new Promise(r=>setTimeout(r,500));const x=await api(`/api/v1/devices/${deviceId}/live`);if(x.r.ok&&x.body.latestTelemetry?.id){live=x.body;break}}
 assert.ok(live,'live telemetry was not projected'); assert.equal(live.device.status,'online'); assert.equal(live.latestTelemetry.data.temperature,42.5);
 const telemetryRows=await db(`/rest/v1/device_telemetry?device_id=eq.${deviceId}&select=id,data&order=id.desc&limit=1`);assert.equal(telemetryRows.length,1);
-const eventRows=await db(`/rest/v1/events?organization_id=eq.${ORG_ID}&external_event_id=eq.${telemetry.messageId}&select=id,event_type_id&limit=1`);assert.equal(eventRows.length,1);
+const eventRows=await db(`/rest/v1/events?organization_id=eq.${ORG_ID}&external_event_id=eq.${telemetry.messageId}&select=id,event_type_id,organization_id,payload&limit=1`);assert.equal(eventRows.length,1); assert.equal(eventRows[0].organization_id,ORG_ID);
 
 // Exact message replay is idempotent: the same messageId must not create another telemetry row.
 client.publish(`pulse/v1/devices/${deviceId}/telemetry`,JSON.stringify(telemetry),{qos:1});
 await new Promise(r=>setTimeout(r,1000));
 const replayRows=await db(`/rest/v1/device_telemetry?device_id=eq.${deviceId}&select=id&order=id.desc&limit=2`);assert.equal(replayRows.length,1,'exact telemetry replay created a duplicate row');
+
+// The authenticated device identity is authoritative; a message cannot claim another device.
+const beforeIdentityMismatch=await db(`/rest/v1/device_telemetry?device_id=eq.${deviceId}&select=id`);
+const identityMismatch={...telemetry,messageId:crypto.randomUUID(),deviceId:crypto.randomUUID(),sequence:2,payload:{temperature:88}};
+client.publish(`pulse/v1/devices/${deviceId}/telemetry`,JSON.stringify(identityMismatch),{qos:1});
+await new Promise(r=>setTimeout(r,1000));
+const afterIdentityMismatch=await db(`/rest/v1/device_telemetry?device_id=eq.${deviceId}&select=id`);assert.equal(afterIdentityMismatch.length,beforeIdentityMismatch.length,'authenticated device accepted a mismatched deviceId');
 
 const idem=crypto.randomUUID();
 const commandBody=JSON.stringify({organizationId:ORG_ID,deviceId,commandType:'SET_SPEED',payload:{rpm:1200}});
@@ -55,7 +62,13 @@ assert.equal(commandA.r.status,202); assert.equal(commandB.r.status,202); assert
 const command=commandA;
 const received=await waitForMessage(client);assert.equal(received.commandId,command.body.commandId);assert.equal(received.payload.rpm,1200);
 await waitForCommandStatus(command.body.commandId,'published');
-const commandRows=await db(`/rest/v1/device_commands?id=eq.${command.body.commandId}&select=status&limit=1`);assert.equal(commandRows[0].status,'published');
+const commandRows=await db(`/rest/v1/device_commands?id=eq.${command.body.commandId}&select=status,organization_id&limit=1`);assert.equal(commandRows[0].status,'published');assert.equal(commandRows[0].organization_id,ORG_ID);
+
+// A caller cannot substitute an organization it is not a member of, even with a valid session.
+const unauthorizedOrg=crypto.randomUUID();
+const denied=await api('/api/v1/device-commands',{method:'POST',headers:{'Idempotency-Key':crypto.randomUUID()},body:JSON.stringify({organizationId:unauthorizedOrg,deviceId,commandType:'SET_SPEED',payload:{rpm:1300}})});
+assert.ok([401,403].includes(denied.r.status),`cross-tenant command was not denied: HTTP ${denied.r.status}`);
+const deniedRows=await db(`/rest/v1/device_commands?organization_id=eq.${unauthorizedOrg}&device_id=eq.${deviceId}&select=id&limit=1`);assert.equal(deniedRows.length,0,'cross-tenant command was persisted');
 
 const ack={schemaVersion:'1.0',messageId:crypto.randomUUID(),deviceId,messageType:'COMMAND_ACK',sentAt:new Date().toISOString(),sequence:2,payload:{commandId:command.body.commandId,status:'accepted'}};
 client.publish(`pulse/v1/devices/${deviceId}/ack`,JSON.stringify(ack),{qos:1});
@@ -71,4 +84,4 @@ const staleEvent=await db(`/rest/v1/events?organization_id=eq.${ORG_ID}&external
 
 const audit=await db(`/rest/v1/audit_logs?resource_id=eq.${deviceId}&action=in.(device.register,telemetry.received)&select=action`);assert.ok(audit.some((x:any)=>x.action==='device.register'));assert.ok(audit.some((x:any)=>x.action==='telemetry.received'));
 const commandAudit=await db(`/rest/v1/audit_logs?resource_id=eq.${command.body.commandId}&action=in.(command.issued,command.acknowledged)&select=action`);assert.ok(commandAudit.some((x:any)=>x.action==='command.issued'));assert.ok(commandAudit.some((x:any)=>x.action==='command.acknowledged'));
-client.end(true); console.log('BLOCK 1 GOLDEN PATH 1: PASS — registration, auth, MQTT, telemetry, online projection, event, replay rejection, concurrent command idempotency, command receipt, ACK, audit');
+client.end(true); console.log('BLOCK 1 GOLDEN PATH 1: PASS — registration, auth, MQTT, telemetry, online projection, event, replay rejection, device identity isolation, concurrent command idempotency, tenant authorization, command receipt, ACK, audit');
