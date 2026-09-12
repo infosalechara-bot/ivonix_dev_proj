@@ -2,6 +2,13 @@
 
 Findings recorded during Block 1 execution are not part of the Golden Path unless they directly block one of the 13 requirements.
 
+## Closed during Block 1
+
+### P2 — Golden Path command delivery race (CLOSED)
+- **What:** The E2E harness attached the MQTT `once('message')` listener only after the concurrent command POSTs returned. A fast broker delivery could arrive before the listener was registered, producing a false timeout.
+- **Fix:** Listener is now registered before command issuance (`tests/e2e/golden_path_1.spec.ts`).
+- **Commit:** `fix(block1): eliminate Golden Path command delivery race`
+
 ## P0 — Migration baseline divergence
 - **What:** Production has 41 migrations while the branch contains a materially different 21-file migration set, with bidirectional divergence and timestamp/name differences.
 - **Why it matters:** A fresh staging build may not reproduce production schema history and post-state.
