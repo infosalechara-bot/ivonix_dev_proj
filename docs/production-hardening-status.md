@@ -2,6 +2,22 @@
 
 This is a living gate record. A capability is **implemented** only when code exists; it is **verified** only when the corresponding test or runtime evidence exists. Production certification requires all gates below to be verified.
 
+## Block 1 status (current)
+
+**Repository-side Golden Path work is complete. Live certification is not.**
+
+- Golden Path harness race (command listener after POST) is **fixed**.
+- Certification boundary is locked in `tests/e2e/BLOCK1-CERTIFICATION.md` and `tests/e2e/block1_certification_manifest.md`.
+- Remaining for tag `block-1-verified`:
+  1. Contract verifier PASS on certified commit
+  2. Security gates PASS on certified commit
+  3. Runtime / Compose build PASS on certified commit
+  4. Live Golden Path (13/13) PASS
+  5. Canary execution PASS
+  6. Seven consecutive days of five-minute canary observations PASS
+
+No `block-1-verified` claim is permitted until all six rows have executable evidence.
+
 ## Current branch
 
 - Branch: `pulse-production-bulk-hardening`
@@ -51,7 +67,7 @@ The audit covers repository code, frontend, Java backend, Python services/worker
 | Storage | STAGED, NOT PROVISIONED | Private tenant-isolated `pulse-assets` bucket/policies remain staged; transcript worker is aligned to that bucket and tenant-prefix contract, but live storage remains unchanged at 0 buckets/0 policies. |
 | Migration reproducibility | NOT CERTIFIED | Live migration history and repository chain remain divergent; canonical baseline and schema-drift reconciliation are mandatory before production migration. Read-only schema/RLS verification is present at `scripts/verify-schema.sql`. |
 | Security regression CI | IMPLEMENTED, VERIFY | Cross-service Python security tests, secret-pattern scanning and Compose secret coverage are defined in `pulse-security-gates.yml`. |
-| Machine-flow certification harness | IMPLEMENTED, VERIFY | `tests/integration/machine-flow-gates.md` defines the complete registration → telemetry → Event Bus → intelligence → command → audit → recovery → Founder → runtime chain and certification thresholds. |
+| Machine-flow certification harness | IMPLEMENTED, VERIFY | `tests/integration/machine-flow-gates.md` defines the complete registration → telemetry → Event Bus → intelligence → command → audit → recovery → Founder → runtime chain and certification thresholds. Golden Path command-delivery race is fixed. |
 
 ## Recent hardening changes
 
