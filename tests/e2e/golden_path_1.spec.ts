@@ -58,6 +58,10 @@ client.publish(`pulse/v1/devices/${deviceId}/telemetry`,JSON.stringify(identityM
 await new Promise(r=>setTimeout(r,1000));
 const afterIdentityMismatch=await db(`/rest/v1/device_telemetry?device_id=eq.${deviceId}&select=id`);assert.equal(afterIdentityMismatch.length,beforeIdentityMismatch.length,'authenticated device accepted a mismatched deviceId');
 
+// Register the command listener BEFORE issuing the command so a fast broker
+// delivery cannot race past an unattached once('message') handler.
+const commandDelivery = waitForMessage(client);
+
 const idem=crypto.randomUUID();
 const commandBody=JSON.stringify({organizationId:ORG_ID,deviceId,commandType:'SET_SPEED',payload:{rpm:1200}});
 const [commandA,commandB]=await Promise.all([
@@ -66,7 +70,7 @@ const [commandA,commandB]=await Promise.all([
 ]);
 assert.equal(commandA.r.status,202); assert.equal(commandB.r.status,202); assert.ok(commandA.body.commandId); assert.equal(commandA.body.commandId,commandB.body.commandId,'concurrent idempotent requests created different commands');
 const command=commandA;
-const received=await waitForMessage(client);assert.equal(received.commandId,command.body.commandId);assert.equal(received.payload.rpm,1200);
+const received=await commandDelivery;assert.equal(received.commandId,command.body.commandId);assert.equal(received.payload.rpm,1200);
 await waitForCommandStatus(command.body.commandId,'published');
 const commandRows=await db(`/rest/v1/device_commands?id=eq.${command.body.commandId}&select=status,organization_id&limit=1`);assert.equal(commandRows[0].status,'published');assert.equal(commandRows[0].organization_id,ORG_ID);
 
