@@ -17,12 +17,14 @@ spring:
       hibernate.jdbc.time_zone: UTC
   flyway:
     enabled: false
+
 server:
   port: ${PORT:8081}
   forward-headers-strategy: framework
   error:
     include-message: never
     include-stacktrace: never
+
 management:
   endpoints:
     web:
@@ -32,14 +34,3 @@ management:
     health:
       probes:
         enabled: true
-PULSE_JWT_SECRET: ${PULSE_JWT_SECRET}
-PULSE_ACCESS_TOKEN_SECONDS: ${PULSE_ACCESS_TOKEN_SECONDS:900}
-PULSE_REFRESH_TOKEN_SECONDS: ${PULSE_REFRESH_TOKEN_SECONDS:2592000}
-PULSE_RATE_LIMIT_PER_MINUTE: ${PULSE_RATE_LIMIT_PER_MINUTE:100}
-PULSE_RATE_LIMIT_MAX_CLIENTS: ${PULSE_RATE_LIMIT_MAX_CLIENTS:10000}
-PULSE_EMBEDDING_URL: ${PULSE_EMBEDDING_URL:http://embedding-service:8000}
-PULSE_AI_URL: ${PULSE_AI_URL:http://ai-service:8000}
-PULSE_EDGE_SYNC_DELAY_MS: ${PULSE_EDGE_SYNC_DELAY_MS:60000}
-VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:}
-SUPABASE_URL: ${SUPABASE_URL}
-SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY}
