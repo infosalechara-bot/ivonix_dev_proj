@@ -1,0 +1,19 @@
+name: Maven Debug Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Build with full output
+        working-directory: apps/ontology
+        run: mvn -B -DskipTests package
