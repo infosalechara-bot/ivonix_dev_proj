@@ -7,8 +7,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 
-public record SatelliteView(UUID id, UUID organizationId, String name, String noradId, String tleLine1, String tleLine2, String status) {}
-public record CollisionView(UUID id, UUID satelliteId, String objectName, String objectNoradId, java.time.OffsetDateTime tca, Double missDistanceMeters, Double probability, String severity) {}
+record SatelliteView(UUID id, UUID organizationId, String name, String noradId, String tleLine1, String tleLine2, String status) {}
+record CollisionView(UUID id, UUID satelliteId, String objectName, String objectNoradId, java.time.OffsetDateTime tca, Double missDistanceMeters, Double probability, String severity) {}
 
 @Service
 public class SpaceService {
