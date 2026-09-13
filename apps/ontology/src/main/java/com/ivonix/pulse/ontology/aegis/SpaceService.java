@@ -10,7 +10,7 @@ import java.util.*;
 record SatelliteView(UUID id, UUID organizationId, String name, String noradId, String tleLine1, String tleLine2, String status) {}
 record CollisionView(UUID id, UUID satelliteId, String objectName, String objectNoradId, java.time.OffsetDateTime tca, Double missDistanceMeters, Double probability, String severity) {}
 
-@Service
+@Service("aegisSpaceService")
 public class SpaceService {
     private final JdbcTemplate jdbc;
 
