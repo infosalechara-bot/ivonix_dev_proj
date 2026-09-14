@@ -12,10 +12,13 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        // THIS LINE WILL PROVE IF RENDER IS USING THE NEW CODE
+        System.out.println("🚀🚀🚀 NEW SECURITY CONFIG IS RUNNING! 🚀🚀🚀"); 
+        
         http
             .csrf(csrf -> csrf.disable()) 
             .authorizeHttpRequests(auth -> auth
-                .anyRequest().permitAll() // THIS MUST BE HERE
+                .anyRequest().permitAll() 
             );
         return http.build();
     }
