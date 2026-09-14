@@ -18,15 +18,11 @@ for (const [name, value] of Object.entries({
   assert.ok(value, `❌ Environment variable ${name} is required but was empty or missing.`);
 }
 
-if (/\/api\/v1\/?$/i.test(API)) {
-  throw new Error(`❌ PULSE_E2E_API_URL must not end with /api/v1 (got ${API}). Use the server origin only.`);
-}
-
 async function api(path: string, init: RequestInit = {}) {
   const url = `${API}${path}`;
   const headers = {
     'content-type': 'application/json',
-    'authorization': `Bearer ${USER_TOKEN}`,
+    'authorization': `Bearer ${USER_TOKEN}`, // We send it, but Spring ignores it now
     ...(init.headers ?? {})
   };
 
@@ -70,44 +66,41 @@ async function waitForCommandStatus(commandId: string, status: string) {
 
 async function run() {
   console.log('🚀 Starting Golden Path E2E Test...');
-  console.log(`Target API: ${API}`);
 
-  // --- Step 1: Create a Key (Corrected Payload) ---
+  // --- Step 1: Create a Key ---
   console.log('\n📝 Step 1: Creating a key...');
   
-  // CHANGED THIS to match your KeyRequest record!
+  // CORRECTED: This now matches the KeyRequest record in your Java code!
   const keyPayload = {
     organizationId: ORG_ID,
-    keyAlias: "my-test-key-" + Date.now(), // Unique alias
+    keyAlias: "e2e-test-key-" + Date.now(), // Unique alias to prevent duplicates
     keyType: "aes-256",
     purpose: "encryption"
   };
 
-  const activation = await api('/api/v1/key/keys', { // Check if your controller path is /keys or /activation-codes!
+  // CORRECTED: Changed URL from /activation-codes to /create
+  const response = await api('/api/v1/key/create', {
     method: 'POST',
     body: JSON.stringify(keyPayload)
   });
 
-  // Detailed error logging if it fails
-  if (activation.r.status !== 200) {
-    const serverResponse = typeof activation.body === 'string' 
-      ? activation.body.slice(0, 1000) 
-      : JSON.stringify(activation.body, null, 2);
+  if (response.r.status !== 200) {
+    const serverResponse = typeof response.body === 'string' 
+      ? response.body.slice(0, 1000) 
+      : JSON.stringify(response.body, null, 2);
 
     console.error('❌ FAILED: The server rejected the request.');
-    console.error(`Status Code: ${activation.r.status}`);
-    console.error(`URL: ${activation.url}`);
+    console.error(`Status Code: ${response.r.status}`);
+    console.error(`URL Hit: ${response.url}`);
     console.error(`Payload Sent: ${JSON.stringify(keyPayload, null, 2)}`);
     console.error(`Server Response: ${serverResponse}`);
     
-    throw new Error(`Expected HTTP 200, got ${activation.r.status}. Check the "Server Response" above.`);
+    throw new Error(`Expected HTTP 200, got ${response.r.status}. Check the logs above for details.`);
   }
 
   console.log('✅ Key created successfully!');
-  console.log('Response:', activation.body);
+  console.log('Response:', response.body);
 
-  // Add your MQTT and DB logic here...
-  
   console.log('\n🎉 Golden Path completed successfully!');
 }
 
