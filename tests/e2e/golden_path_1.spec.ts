@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import mqtt from 'mqtt';
 
-// --- Configuration ---
 const API = (process.env.PULSE_E2E_API_URL ?? 'http://localhost:8081').replace(/\/$/, '');
 const MQTT = process.env.PULSE_E2E_MQTT_URL ?? 'mqtt://localhost:1883';
 const USER_TOKEN = process.env.PULSE_E2E_USER_TOKEN;
@@ -9,7 +8,7 @@ const ORG_ID = process.env.PULSE_E2E_ORG_ID;
 const SUPABASE_URL = process.env.PULSE_E2E_SUPABASE_URL;
 const SUPABASE_KEY = process.env.PULSE_E2E_SUPABASE_SERVICE_ROLE_KEY;
 
-// --- Validation of Environment Variables ---
+// Validate Environment Variables
 for (const [name, value] of Object.entries({
   PULSE_E2E_USER_TOKEN: USER_TOKEN,
   PULSE_E2E_ORG_ID: ORG_ID,
@@ -23,7 +22,6 @@ if (/\/api\/v1\/?$/i.test(API)) {
   throw new Error(`❌ PULSE_E2E_API_URL must not end with /api/v1 (got ${API}). Use the server origin only.`);
 }
 
-// --- Helper Functions ---
 async function api(path: string, init: RequestInit = {}) {
   const url = `${API}${path}`;
   const headers = {
@@ -42,10 +40,7 @@ async function api(path: string, init: RequestInit = {}) {
 
 async function db(path: string) {
   const r = await fetch(`${SUPABASE_URL}${path}`, {
-    headers: {
-      apikey: SUPABASE_KEY!,
-      authorization: `Bearer ${SUPABASE_KEY!}`
-    }
+    headers: { apikey: SUPABASE_KEY!, authorization: `Bearer ${SUPABASE_KEY!}` }
   });
   assert.equal(r.status, 200, `DB query failed: ${path} - Status: ${r.status}`);
   return r.json();
@@ -73,27 +68,27 @@ async function waitForCommandStatus(commandId: string, status: string) {
   throw new Error(`Command ${commandId} did not reach status: ${status}`);
 }
 
-// --- Main Test Execution ---
 async function run() {
   console.log('🚀 Starting Golden Path E2E Test...');
   console.log(`Target API: ${API}`);
-  console.log(`Target MQTT: ${MQTT}`);
 
-  // Step 1: Create an Activation Code
-  console.log('\n📝 Step 1: Creating activation code...');
-  const activationPayload = {
+  // --- Step 1: Create a Key (Corrected Payload) ---
+  console.log('\n📝 Step 1: Creating a key...');
+  
+  // CHANGED THIS to match your KeyRequest record!
+  const keyPayload = {
     organizationId: ORG_ID,
-    ttlMinutes: 10,
-    maxUses: 1,
-    scopes: ['key:use']
+    keyAlias: "my-test-key-" + Date.now(), // Unique alias
+    keyType: "aes-256",
+    purpose: "encryption"
   };
 
-  const activation = await api('/api/v1/key/activation-codes', {
+  const activation = await api('/api/v1/key/keys', { // Check if your controller path is /keys or /activation-codes!
     method: 'POST',
-    body: JSON.stringify(activationPayload)
+    body: JSON.stringify(keyPayload)
   });
 
-  // If the status is not 200, throw a highly detailed error so we can debug it!
+  // Detailed error logging if it fails
   if (activation.r.status !== 200) {
     const serverResponse = typeof activation.body === 'string' 
       ? activation.body.slice(0, 1000) 
@@ -102,22 +97,20 @@ async function run() {
     console.error('❌ FAILED: The server rejected the request.');
     console.error(`Status Code: ${activation.r.status}`);
     console.error(`URL: ${activation.url}`);
-    console.error(`Payload Sent: ${JSON.stringify(activationPayload, null, 2)}`);
+    console.error(`Payload Sent: ${JSON.stringify(keyPayload, null, 2)}`);
     console.error(`Server Response: ${serverResponse}`);
     
-    throw new Error(`activation-codes expected HTTP 200, got ${activation.r.status}. Check the logs above for the server's response.`);
+    throw new Error(`Expected HTTP 200, got ${activation.r.status}. Check the "Server Response" above.`);
   }
 
-  console.log('✅ Activation code created successfully!');
+  console.log('✅ Key created successfully!');
   console.log('Response:', activation.body);
 
-  // Step 2: Connect to MQTT (Example continuation)
-  // Add your MQTT and database logic here based on your original test file.
+  // Add your MQTT and DB logic here...
   
   console.log('\n🎉 Golden Path completed successfully!');
 }
 
-// Run the test and catch any unhandled errors
 run().catch((error) => {
   console.error('\n💥 Test execution failed:');
   console.error(error.message);
