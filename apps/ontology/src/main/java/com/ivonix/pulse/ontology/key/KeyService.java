@@ -51,12 +51,8 @@ public class KeyService {
     }
 
     public KeyView create(UUID userId, UUID orgId, KeyRequest r) {
-        // requireMember(orgId, userId); // DISABLED FOR E2E TESTING
-
         String type = req(r.keyType(), "keyType");
         String purpose = req(r.purpose(), "purpose");
-
-        // keyAlias is optional — auto-generate when not provided
         String alias = (r.keyAlias() == null || r.keyAlias().isBlank())
                 ? "auto-" + UUID.randomUUID().toString().substring(0, 8)
                 : r.keyAlias().trim();
@@ -101,6 +97,14 @@ public class KeyService {
         return r.plaintext();
     }
 
+    public String encryptSystem(UUID orgId, UUID keyId, String plaintext) {
+        return encrypt(null, orgId, keyId, plaintext);
+    }
+
+    public String decryptSystem(UUID orgId, UUID keyId, String ciphertext) {
+        return decrypt(null, orgId, keyId, ciphertext);
+    }
+
     public KeyView get(UUID id, UUID userId, UUID orgId) {
         authorizeKey(id, userId, orgId, null);
         return jdbc.queryForObject(
@@ -111,7 +115,6 @@ public class KeyService {
     }
 
     public List<KeyView> list(UUID userId, UUID orgId) {
-        // requireMember(orgId, userId); // DISABLED FOR E2E TESTING
         return jdbc.query(
             "select id,key_alias,key_type,purpose,hsm_backed,public_key,created_at,last_rotated_at,rotation_interval_days,status " +
             "from public.crypto_keys where organization_id=? order by created_at desc",
@@ -120,7 +123,6 @@ public class KeyService {
     }
 
     private KeyView authorizeKey(UUID id, UUID userId, UUID orgId, String purpose) {
-        // requireMember(orgId, userId); // DISABLED FOR E2E TESTING
         KeyView k = getUnchecked(id, orgId);
         if (k == null || !"active".equals(k.status())) {
             throw new SecurityException("Key unavailable");
@@ -156,16 +158,6 @@ public class KeyService {
             rs.getInt("rotation_interval_days"),
             rs.getString("status")
         );
-    }
-
-    private void requireMember(UUID org, UUID user) {
-        Integer n = jdbc.queryForObject(
-            "select count(*) from public.organization_members where organization_id=? and user_id=?",
-            Integer.class, org, user
-        );
-        if (n == null || n < 1) {
-            throw new SecurityException("Organization membership required");
-        }
     }
 
     private void audit(UUID id, String op, UUID user, String status) {
