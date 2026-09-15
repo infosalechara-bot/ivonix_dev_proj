@@ -30,7 +30,7 @@ public class KeyService {
             RestTemplate rest,
             @Value("${PULSE_CRYPTO_URL:http://127.0.0.1:8092}") String cryptoUrl,
             @Value("${PULSE_MASTER_KEY:}") String rawMasterKey) {
-        
+
         this.jdbc = jdbc;
         this.rest = rest;
         this.cryptoUrl = cryptoUrl.replaceAll("/$", "");
@@ -38,13 +38,13 @@ public class KeyService {
         if (rawMasterKey == null || rawMasterKey.isBlank()) {
             throw new IllegalStateException("PULSE_MASTER_KEY is required");
         }
-        
+
         try {
             this.masterKey = Base64.getDecoder().decode(rawMasterKey);
         } catch (Exception e) {
             throw new IllegalStateException("PULSE_MASTER_KEY must be valid base64", e);
         }
-        
+
         if (this.masterKey.length != 32) {
             throw new IllegalStateException("PULSE_MASTER_KEY must decode to exactly 32 bytes");
         }
@@ -52,9 +52,14 @@ public class KeyService {
 
     public KeyView create(UUID userId, UUID orgId, KeyRequest r) {
         requireMember(orgId, userId);
+
         String type = req(r.keyType(), "keyType");
         String purpose = req(r.purpose(), "purpose");
-        String alias = req(r.keyAlias(), "keyAlias");
+
+        // keyAlias is optional — auto-generate when not provided
+        String alias = (r.keyAlias() == null || r.keyAlias().isBlank())
+                ? "auto-" + UUID.randomUUID().toString().substring(0, 8)
+                : r.keyAlias().trim();
 
         if (!Set.of("aes-256", "rsa-2048", "ec-p256").contains(type)) {
             throw new IllegalArgumentException("Unsupported key type");
@@ -217,4 +222,4 @@ public class KeyService {
     public record CryptoRequest(UUID keyId, String data) {}
     public record CryptoResponse(String ciphertext, String plaintext) {}
     private record KeyMaterial(String publicKey, byte[] privateKey) {}
- }
+}
